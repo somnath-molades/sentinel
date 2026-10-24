@@ -1,0 +1,13 @@
+> This document is not legal advice and is pending review by qualified counsel.
+
+Sentinel
+Licensed under the MIT License (see LICENSE).
+
+This project includes technique knowledge normalized from the open-source
+projects listed below. Each entry gives the source URL, its license, and the
+upstream commit the content was taken from. Entries are added as upstream
+packs are vendored.
+
+Vendored upstream content:
+
+(none yet)
