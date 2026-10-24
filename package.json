@@ -8,6 +8,7 @@
   "scripts": {
     "test": "vitest run",
     "build": "tsc -b packages/core",
+    "gen:schema": "tsc -b packages/core && node scripts/gen-schema.mjs",
     "lint": "tsc -p tsconfig.typecheck.json",
     "check:no-remote-install": "sh scripts/check-no-remote-install.sh"
   },

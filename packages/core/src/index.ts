@@ -1,1 +1,6 @@
 export const SENTINEL_CORE_VERSION = '0.1.0'
+export type { Result } from './types.js'
+export { DEPTH_TIERS, techniqueSchema, parseTechnique } from './schema/technique.js'
+export type { DepthTier, FixPattern, TechniqueEntry, SchemaError } from './schema/technique.js'
+export { packSchema } from './schema/pack.js'
+export type { PackManifest } from './schema/pack.js'
