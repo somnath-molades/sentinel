@@ -37,18 +37,6 @@
         "minLength": 1
       }
     },
-    "detection": {
-      "type": "string",
-      "minLength": 1
-    },
-    "verification": {
-      "type": "string",
-      "minLength": 1
-    },
-    "defensive_use": {
-      "type": "string",
-      "minLength": 1
-    },
     "fix_patterns": {
       "minItems": 1,
       "type": "array",
@@ -108,9 +96,6 @@
     "vuln_classes",
     "depth_tier",
     "stacks",
-    "detection",
-    "verification",
-    "defensive_use",
     "fix_patterns",
     "references",
     "provenance"

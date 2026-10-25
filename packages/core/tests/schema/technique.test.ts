@@ -31,6 +31,29 @@ test('rejects an entry with an empty defensive_use section', () => {
   expect(fail('x.md', md).problem).toMatch(/defensive_use/)
 })
 
+test('defensive_use in frontmatter does not satisfy the requirement', () => {
+  const md = read('missing-defensive-use.md').replace('depth_tier: L1', 'depth_tier: L1\ndefensive_use: Proves a real flaw and shows the fix.')
+  const e = fail('x.md', md)
+  expect(e.problem).toMatch(/defensive_use.*body/)
+})
+
+test.each([
+  ['frontmatter', (md: string) => md.replace('depth_tier: L1', 'depth_tier: L1\ndefensive_use: "   "')],
+  ['body section', (md: string) => md + '\n## Defensive use\n\n   \n'],
+])('whitespace-only defensive_use via %s is rejected', (_route, mutate) => {
+  expect(fail('x.md', mutate(read('missing-defensive-use.md'))).problem).toMatch(/defensive_use/)
+})
+
+test('rejects unknown frontmatter keys, matching the published JSON Schema', () => {
+  const md = read('valid-technique.md').replace('depth_tier: L1', 'depth_tier: L1\ncew: [CWE-89]')
+  expect(fail('x.md', md).problem).toMatch(/cew/)
+})
+
+test('rejects unknown keys in nested objects too', () => {
+  const md = read('valid-technique.md').replace('  pack: example-pack', '  pack: example-pack\n  packs: typo')
+  expect(fail('x.md', md).problem).toMatch(/packs/)
+})
+
 test('rejects an entry with no fix_patterns', () => {
   const md = read('valid-technique.md').replace(/fix_patterns:[\s\S]*?references:/, 'fix_patterns: []\nreferences:')
   expect(fail('x.md', md).problem).toMatch(/fix_pattern/)

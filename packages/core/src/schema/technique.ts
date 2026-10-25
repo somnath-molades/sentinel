@@ -9,7 +9,7 @@ const fixPatternSchema = z.object({
   stack: z.string().min(1),
   tier: z.enum(['mechanical', 'guided', 'design-change']),
   guidance: z.string().min(1),
-})
+}).strict()
 export type FixPattern = z.infer<typeof fixPatternSchema>
 
 export const techniqueSchema = z.object({
@@ -18,15 +18,21 @@ export const techniqueSchema = z.object({
   cwe: z.array(z.string()).optional(),
   depth_tier: z.enum(DEPTH_TIERS, { error: (iss) => `unknown depth_tier ${JSON.stringify(iss.input)}; expected one of ${DEPTH_TIERS.join(', ')}` }),
   stacks: z.array(z.string().min(1)),
-  detection: z.string().min(1),
-  verification: z.string().min(1),
+  detection: z.string().trim().min(1),
+  verification: z.string().trim().min(1),
   // Mandatory: this is what keeps the registry defensive. Do not make it optional.
-  defensive_use: z.string().min(1),
+  defensive_use: z.string().trim().min(1),
   fix_patterns: z.array(fixPatternSchema).min(1),
   references: z.array(z.string()),
-  provenance: z.object({ pack: z.string().min(1), upstream_commit: z.string().optional() }),
+  provenance: z.object({ pack: z.string().min(1), upstream_commit: z.string().optional() }).strict(),
 })
 export type TechniqueEntry = z.infer<typeof techniqueSchema>
+
+// What the YAML frontmatter may contain: everything except the three prose fields, which must
+// come from `##` body sections so reviewers read them as prose. Strict: unknown keys are errors.
+export const frontmatterSchema = techniqueSchema
+  .omit({ detection: true, verification: true, defensive_use: true })
+  .strict()
 
 export type SchemaError = { file: string; problem: string }
 
@@ -54,7 +60,17 @@ export function parseTechnique(markdown: string, source: string): Result<Techniq
     return err(`invalid YAML frontmatter: ${e instanceof Error ? e.message : String(e)}`)
   }
   if (typeof front !== 'object' || front === null || Array.isArray(front)) return err('frontmatter must be a YAML mapping')
-  const r = techniqueSchema.safeParse({ ...front, ...proseSections(m[2] ?? '') })
+  const misplaced = PROSE_FIELDS.filter((k) => k in front)
+  if (misplaced.length > 0) {
+    return err(`${misplaced.join(', ')}: must be a "## " section in the body, not a frontmatter key`)
+  }
+  const f = frontmatterSchema.safeParse(front)
+  if (!f.success) return err(formatIssues(f.error))
+  const r = techniqueSchema.safeParse({ ...f.data, ...proseSections(m[2] ?? '') })
   if (r.success) return { ok: true, value: r.data }
-  return err(r.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; '))
+  return err(formatIssues(r.error))
+}
+
+function formatIssues(e: z.ZodError): string {
+  return e.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')
 }
