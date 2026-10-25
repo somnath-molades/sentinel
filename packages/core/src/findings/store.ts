@@ -1,6 +1,6 @@
 import type { DepthTier } from '../schema/technique.js'
 import { fingerprint, type FindingInput } from './fingerprint.js'
-import type { Severity } from './severity.js'
+import { BAND_RANK, type Severity } from './severity.js'
 
 export type Verdict = { agent: string; outcome: 'confirmed' | 'disproved' | 'ambiguous'; reasoning: string }
 export type Finding = FindingInput & {
@@ -81,11 +81,9 @@ export class FindingsStore {
   }
 }
 
-const RANK: Record<Severity['band'], number> = { info: 0, low: 1, medium: 2, high: 3, critical: 4 }
-
 // Only 'confirmed' findings can fail a build: needs-review is unverified, and failing CI on an
 // unverified claim is a false positive. A confirmed finding with no severity cannot be compared, so it does not trip.
 export function decideExitCode(findings: Finding[], failOn: Severity['band'] | null): 0 | 1 {
   if (failOn === null) return 0
-  return findings.some((f) => f.status === 'confirmed' && f.severity && RANK[f.severity.band] >= RANK[failOn]) ? 1 : 0
+  return findings.some((f) => f.status === 'confirmed' && f.severity && BAND_RANK[f.severity.band] >= BAND_RANK[failOn]) ? 1 : 0
 }
