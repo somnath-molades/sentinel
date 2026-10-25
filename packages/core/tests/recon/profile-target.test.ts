@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,6 +12,14 @@ test('header files are recognised, not counted as unexamined', async () => {
   expect(p.skipped.some((s) => s.path.endsWith('.h'))).toBe(false)
   // An unrecognised .h is never in `skipped`; it lands in files with no language. greet.c + greet.h must both count as c.
   expect(p.languages.find((l) => l.language === 'c')?.files).toBe(2)
+})
+
+// Spec 6.4: without a safe counterpart for each planted defect, "it found the real thing"
+// would pass against a tool that flags every route and every query.
+test('the fixture contains both a vulnerable and a safe form of each planted class', async () => {
+  const src = await readFile(join(fixture('express-vulnerable'), 'src/server.js'), 'utf8')
+  expect(src).toMatch(/\$\d|\?\s*\]/) // a parameterized query
+  expect(src).toMatch(/requireAuth|isAuthed/) // an authorization check on at least one route
 })
 
 test('profiles an express app', async () => {
