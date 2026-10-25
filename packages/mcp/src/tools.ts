@@ -247,7 +247,7 @@ export function createSession(opts: SessionOptions = {}): Session {
         const v = p.data
         if (!known.has(v.technique_id)) return rejected.push({ index: i, reason: `technique_id: unknown technique "${v.technique_id}"${registryErrors.length ? ` (note: ${registryWarning()})` : ''}` })
         try {
-          accepted.push(state.store.add({ technique_id: v.technique_id, file: v.file, line: v.line, snippet: v.snippet }, { depth_tier: v.depth_tier, reachability: v.reachability }))
+          accepted.push(state.store.add({ technique_id: v.technique_id, file: v.file, line: v.line, snippet: v.snippet }, { depth_tier: v.depth_tier, reachability: v.reachability, reporting_agent: 'unattributed' /* TODO: call-level param on record_finding */ }))
         } catch (e) {
           rejected.push({ index: i, reason: reason(e) }) // the store's own contract check; still per finding
         }

@@ -11,9 +11,12 @@ export type Finding = FindingInput & {
   verdicts: Verdict[]
   // Other (line, reachability) pairs from duplicate reports, so dedupe collapses the report, not the evidence.
   additional_locations: { line: number; reachability: string }[]
+  // Every agent that reported this defect (dedupe merges reports), so none of them may verify it.
+  reporting_agents: string[]
   severity?: Severity
 }
-export type AddMeta = { depth_tier: DepthTier; reachability: string }
+// reporting_agent lives here, not on FindingInput: it must not feed the fingerprint, or dedupe would stop collapsing.
+export type AddMeta = { depth_tier: DepthTier; reachability: string; reporting_agent: string }
 
 // Hard verification gate (spec 6.2): disproved > ambiguous > confirmed. Recomputed from
 // all verdicts, so arrival order can never matter.
@@ -34,9 +37,12 @@ export class FindingsStore {
   add(input: FindingInput, meta: AddMeta): Finding {
     if (!meta.reachability.trim()) throw new Error('reachability must be a non-empty reason')
     if (!input.snippet.trim()) throw new Error('snippet must not be empty')
+    const reporter = meta.reporting_agent.trim()
+    if (!reporter) throw new Error('reporting_agent must be a non-empty agent id')
     const id = fingerprint(input)
     const existing = this.findings.get(id)
     if (existing) {
+      if (!existing.reporting_agents.includes(reporter)) existing.reporting_agents.push(reporter)
       const seen = (l: { line: number; reachability: string }): boolean =>
         l.line === input.line && l.reachability === meta.reachability
       if (!seen(existing) && !existing.additional_locations.some(seen)) {
@@ -56,6 +62,7 @@ export class FindingsStore {
       status: 'candidate',
       verdicts: [],
       additional_locations: [],
+      reporting_agents: [reporter],
     }
     this.findings.set(id, finding)
     return structuredClone(finding)
@@ -64,6 +71,8 @@ export class FindingsStore {
   recordVerdict(id: string, v: Verdict): Finding {
     const f = this.findings.get(id)
     if (!f) throw new Error(`unknown finding: ${id}`)
+    // Checked first so a self-verdict is refused whatever it claims; trimmed so padding cannot evade it.
+    if (f.reporting_agents.includes(v.agent.trim())) throw new Error(`reporting agent cannot verify its own finding: ${v.agent}`)
     if (!OUTCOMES.includes(v.outcome)) throw new Error(`unknown verdict outcome: ${String(v.outcome)}`)
     f.verdicts.push({ agent: v.agent, outcome: v.outcome, reasoning: v.reasoning })
     f.status = statusFrom(f.verdicts)

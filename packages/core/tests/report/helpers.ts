@@ -34,6 +34,7 @@ const mk = (id: string, status: Finding['status'], over: Partial<Finding> = {}):
   reachability: 'handler reads req.body',
   verdicts: [{ agent: 'v1', outcome: status === 'dropped' ? 'disproved' : status === 'needs-review' ? 'ambiguous' : 'confirmed', reasoning: 'checked the data flow' }],
   additional_locations: [],
+  reporting_agents: ['h1'],
   ...over,
 })
 
