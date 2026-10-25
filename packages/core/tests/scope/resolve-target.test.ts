@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { resolveTarget } from '../../src/scope/resolve-target.js'
+import { execRunner, resolveTarget } from '../../src/scope/resolve-target.js'
 import type { GhRunner } from '../../src/scope/resolve-target.js'
 
 const fixtureDir = fileURLToPath(new URL('../../../../tests/fixtures/scope', import.meta.url))
@@ -85,7 +85,7 @@ test('refuses a GitHub repo the authenticated user cannot access', async () => {
   const gh = stubGh(1)
   const r = await resolveTarget('https://github.com/someone/private', { allowGitHub: true, gh: gh.run })
   expect(refusal(r)).toMatch(/access|authoriz/i)
-  expect(gh.calls).toEqual([['repo', 'view', 'someone/private', '--json', 'nameWithOwner']])
+  expect(gh.calls).toEqual([['repo', 'view', 'https://github.com/someone/private', '--json', 'nameWithOwner']])
 })
 
 test('refuses when the gh runner throws or returns unexpected output', async () => {
@@ -117,7 +117,7 @@ test('accepts an accessible GitHub repo, cloning via the runner into a temp dir'
   try {
     if (r.value.kind !== 'github') throw new Error('expected github')
     expect([r.value.owner, r.value.repo]).toEqual(['someone', 'public'])
-    expect(calls[1]).toEqual(['repo', 'clone', 'someone/public', r.value.root, '--', '--depth', '1'])
+    expect(calls[1]).toEqual(['repo', 'clone', 'https://github.com/someone/public', r.value.root, '--', '--depth', '1'])
     expect(dirname(dirname(r.value.root))).toBe(realpathSync(tmpdir()))
   } finally {
     await rm(dirname(r.value.root), { recursive: true, force: true })
@@ -137,4 +137,29 @@ test('refuses and leaves no temp dir when the clone fails', async () => {
   const { existsSync } = await import('node:fs')
   expect(target).not.toBe('')
   expect(existsSync(dirname(target))).toBe(false)
+})
+
+test('pins the host: every gh call receives the full github.com URL, never a bare slug', async () => {
+  const calls: string[][] = []
+  const run: GhRunner = async (args) => {
+    calls.push(args)
+    return { code: 0, stdout: '{"nameWithOwner":"acme/app"}' }
+  }
+  const r = await resolveTarget('https://github.com/acme/app', { allowGitHub: true, gh: run })
+  if (!r.ok) throw new Error(r.error.reason)
+  await rm(dirname(r.value.root), { recursive: true, force: true })
+  expect(calls).toHaveLength(2)
+  expect(calls.map((c) => c[2])).toEqual(['https://github.com/acme/app', 'https://github.com/acme/app'])
+})
+
+test('production runner: non-zero exit resolves with a numeric code; missing binary and timeout reject', async () => {
+  const node = execRunner(process.execPath)
+  expect((await node(['-e', 'process.exit(3)'], 10_000)).code).toBe(3)
+  expect(await node(['-e', 'console.log("ok")'], 10_000)).toEqual({ code: 0, stdout: 'ok\n' })
+  await expect(execRunner('sentinel-no-such-binary')(['x'], 10_000)).rejects.toBeDefined()
+  await expect(node(['-e', 'setTimeout(()=>{},5000)'], 100)).rejects.toBeDefined()
+})
+
+test('symlink refusal names the resolved directory', async () => {
+  expect(refusal(await resolveTarget(join(fixtureDir, 'escape')))).toContain(realpathSync('/etc'))
 })

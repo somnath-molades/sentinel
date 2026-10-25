@@ -5,4 +5,4 @@ export type { DepthTier, FixPattern, TechniqueEntry, SchemaError } from './schem
 export { packSchema } from './schema/pack.js'
 export type { PackManifest } from './schema/pack.js'
 export { resolveTarget } from './scope/resolve-target.js'
-export type { ResolvedTarget, ScopeRefusal, GhRunner } from './scope/resolve-target.js'
+export type { ResolvedTarget, ScopeRefusal } from './scope/resolve-target.js'

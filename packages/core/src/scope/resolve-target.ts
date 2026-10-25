@@ -8,18 +8,25 @@ export type ResolvedTarget =
   | { kind: 'local'; root: string }
   | { kind: 'github'; owner: string; repo: string; root: string }
 export type ScopeRefusal = { reason: string }
-/** Runs `gh <args>`. Resolves with the exit code; rejects only if gh could not run at all. */
-export type GhRunner = (args: string[]) => Promise<{ code: number; stdout: string }>
+/** Runs `bin args`, with a time budget. Resolves with the exit code; rejects if it could not run at all (missing, timed out, killed). */
+export type GhRunner = (args: string[], timeoutMs: number) => Promise<{ code: number; stdout: string }>
 
-const defaultGh: GhRunner = (args) =>
-  new Promise((res, rej) => {
-    execFile('gh', args, { timeout: 120_000, maxBuffer: 1 << 20 }, (err, stdout) => {
-      if (!err) return res({ code: 0, stdout })
-      const code = (err as { code?: unknown }).code
-      if (typeof code === 'number') return res({ code, stdout })
-      rej(err) // not installed, timed out, killed: caller refuses
+/** Exported for tests only; not part of the package index. GH_HOST pins the host as a second guard beside full-URL arguments. */
+export const execRunner =
+  (bin: string): GhRunner =>
+  (args, timeoutMs) =>
+    new Promise((res, rej) => {
+      execFile(bin, args, { timeout: timeoutMs, maxBuffer: 1 << 20, env: { ...process.env, GH_HOST: 'github.com' } }, (err, stdout) => {
+        if (!err) return res({ code: 0, stdout })
+        const code = (err as { code?: unknown }).code
+        if (typeof code === 'number') return res({ code, stdout })
+        rej(err) // not installed, timed out, killed: caller refuses
+      })
     })
-  })
+
+const defaultGh = execRunner('gh')
+const PROBE_MS = 30_000
+const CLONE_MS = 600_000
 
 const refuse = (reason: string): Result<ResolvedTarget, ScopeRefusal> => ({ ok: false, error: { reason } })
 const ACCEPTED = 'Sentinel scans a local directory path, or a https://github.com/<owner>/<repo> repository you have access to.'
@@ -38,7 +45,7 @@ async function resolveLocal(input: string): Promise<Result<ResolvedTarget, Scope
     const root = await realpath(dirname(given))
     const real = await realpath(given)
     if (!contains(root, real)) {
-      return refuse('That path resolves outside the location you gave (a symlink escapes it), so it was refused. Give the real directory instead.')
+      return refuse(`That path is a symlink to ${real}, which is outside the directory that holds it, so it was refused. If you mean to scan that location, pass ${real} directly.`)
     }
     if (!(await stat(real)).isDirectory()) return refuse('That path is not a directory. Give the directory containing the code to scan.')
     return { ok: true, value: { kind: 'local', root: real } }
@@ -68,20 +75,26 @@ async function resolveGitHub(input: string, gh: GhRunner): Promise<Result<Resolv
   const { owner, repo } = parsed
   const slug = `${owner}/${repo}`
   const noAccess = refuse(`Could not confirm the authenticated gh user has access to ${slug}. Check \`gh auth status\` and that you are authorized to scan this repository.`)
-  let tmp: string | undefined
+  // Full URL, not a bare slug: gh would otherwise pick the host from its own environment/config.
+  const url = `https://github.com/${slug}`
   try {
-    const probe = await gh(['repo', 'view', slug, '--json', 'nameWithOwner'])
+    const probe = await gh(['repo', 'view', url, '--json', 'nameWithOwner'], PROBE_MS)
     if (probe.code !== 0) return noAccess
     const name: unknown = (JSON.parse(probe.stdout) as { nameWithOwner?: unknown }).nameWithOwner
     if (typeof name !== 'string' || name.toLowerCase() !== slug.toLowerCase()) return noAccess
+  } catch {
+    return noAccess
+  }
+  let tmp: string | undefined
+  try {
     tmp = await mkdtemp(join(await realpath(tmpdir()), 'sentinel-'))
     const root = join(tmp, repo)
-    const clone = await gh(['repo', 'clone', slug, root, '--', '--depth', '1'])
+    const clone = await gh(['repo', 'clone', url, root, '--', '--depth', '1'], CLONE_MS)
     if (clone.code !== 0) throw new Error('clone failed')
     return { ok: true, value: { kind: 'github', owner, repo, root } }
   } catch {
     if (tmp) await rm(tmp, { recursive: true, force: true })
-    return refuse(`Could not read ${slug} through gh (access check or clone failed). Confirm you have access and try again.`)
+    return refuse(`Access to ${slug} was confirmed, but fetching it did not complete (it may have failed or timed out on a large repository). Try again.`)
   }
 }
 
