@@ -51,6 +51,8 @@ function findingBlock(f: Finding, label: string, verified: boolean): string {
   if (s) {
     const fa = s.factors
     out.push(`${verified ? 'Rated' : 'Tentative rating, only if it is real:'} **${s.band}**: it is ${EASE[fa.exploitability]}, ${EXPOSURE[fa.reachability]}, ${SPREAD[fa.blast_radius]}, and involves ${DATA[fa.data_sensitivity]}.`)
+    // Plain-voice doubt only; the bands and scores stay in the technical line. False for dropped findings.
+    if (f.severity_disputed) out.push('Our checkers did not agree on how serious this is: at least one of them rated it lower. We show the highest rating, so treat it as a careful worst case rather than a settled number.')
   } else {
     out.push('This finding has not been given a severity rating.')
   }
