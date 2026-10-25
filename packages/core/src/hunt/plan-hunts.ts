@@ -49,7 +49,7 @@ export function planHunts(profile: TargetProfile, index: RegistryIndex): HuntAss
     const own = (t: IndexedTechnique): number => Number(t.stacks.some((s) => known.has(s)))
     const techniques = [...byId.values()].sort((a, b) => own(b) - own(a) || cmp(a.depth_tier, b.depth_tier) || cmp(a.id, b.id))
     // Alphabetical is safe only because recon emits hotspots unranked (walk order); if recon ever ranks them, drop this sort (spec 7.1).
-    const hotspot_paths =[...new Set(profile.hotspots.filter((h) => h.domains.includes(domain)).map((h) => h.path))].sort()
+    const hotspot_paths = [...new Set(profile.hotspots.filter((h) => h.domains.includes(domain)).map((h) => h.path))].sort()
 
     if (techniques.length > 0) return { domain, techniques, hotspot_paths, coverage }
     const anywhere = selectTechniques(index, { domain }).techniques.length
