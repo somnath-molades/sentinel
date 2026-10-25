@@ -37,6 +37,44 @@ test('the verifier skill requires an id different from the reporter', () => {
   expect(read(VERIFY)).toMatch(/different|must not.*same/i)
 })
 
+// Skill-to-tool drift: every backticked identifier in a skill must exist in the tool code, so a rename
+// in tools.ts or server.ts cannot leave the skills confidently wrong under a green suite.
+const toolsSrc = read('packages/mcp/src/tools.ts')
+const serverSrc = read('packages/mcp/src/server.ts')
+// Input side only: severityFactorsSchema, findingSchema, agentId and `inputs` (up to the State type).
+const inputSide = toolsSrc.slice(toolsSrc.indexOf('const severityFactorsSchema'), toolsSrc.indexOf('type State'))
+const TOOL_NAMES = ['plan_hunts', 'record_finding', 'verify_finding', 'profile_target']
+const EXCLUDED = new Set([
+  // plan_hunts OUTPUT fields: they are read by the agent, not sent, so they are not in inputs/findingSchema.
+  'domain', 'path', 'techniques', 'reason', 'hotspot_paths', 'registry_root', 'registry_warning',
+  // Section headings of a technique file, which are registry content, not tool fields.
+  '## Detection', '## Verification',
+])
+
+test.each([HUNT, VERIFY])('%s: every backticked identifier is a real tool, input field or known output field', (f) => {
+  const ids = [...new Set([...read(f).matchAll(/`([^`]+)`/g)].map((m) => m[1]!))]
+  expect(ids.length).toBeGreaterThan(5)
+  const unknown = ids.filter((id) => {
+    if (EXCLUDED.has(id)) return false
+    if (TOOL_NAMES.includes(id)) return !serverSrc.includes(`registerTool('${id}'`)
+    return !new RegExp(`\\b${id}\\b`).test(inputSide)
+  })
+  expect(unknown).toEqual([])
+})
+
+test.each([HUNT, VERIFY])('%s limits the agent to static reading', (f) => {
+  expect(read(f)).toMatch(/do not execute the target's code/i)
+})
+
+test('the hunter says where the target comes from and that the assignment has no file list', () => {
+  expect(read(HUNT)).toMatch(/no file list/i)
+  expect(read(HUNT)).toMatch(/profile_target/)
+})
+
+test('the verifier says the dispatcher supplies the candidate and reporter id', () => {
+  expect(read(VERIFY)).toMatch(/dispatcher supplies/i)
+})
+
 test.each([HUNT, VERIFY])('%s stays thin (spec 5.2/6.3)', (f) => {
   expect(read(f).split('\n').length).toBeLessThanOrEqual(60)
 })
