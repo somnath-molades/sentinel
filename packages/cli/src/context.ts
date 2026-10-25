@@ -4,7 +4,8 @@ import type { RegistryIndex, SchemaError } from '@sentinel/core'
 /** All output goes through this, so tests can capture it and stdout stays clean for piping. */
 export type IO = { out: (s: string) => void; err: (s: string) => void }
 export type GhRunner = (args: string[], timeoutMs: number) => Promise<{ code: number; stdout: string }>
-export type Deps = { gh?: GhRunner }
+/** huntersAvailable is false in this build (Phase 1 has no hunter agents); it exists so the --fail-on wiring can be tested. */
+export type Deps = { gh?: GhRunner; huntersAvailable?: boolean }
 export type Ctx = { io: IO; deps: Deps; defaultRegistry: string }
 
 /** A failure with a user-facing reason. The top level prints it without a stack trace. */

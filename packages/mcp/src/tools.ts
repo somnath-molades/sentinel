@@ -292,7 +292,7 @@ export function createSession(opts: SessionOptions = {}): Session {
       if (stacks.warning) warnings.push(stacks.warning)
       if (state.rejected) warnings.push(`${state.rejected} finding(s) were rejected at ingest and are NOT in this report.`)
 
-      const body = format === 'sarif' ? toSarif(findings, profile, { mode }) : toMarkdown(findings, profile, { mode })
+      const body = format === 'sarif' ? toSarif(findings, profile, { mode, warnings }) : toMarkdown(findings, profile, { mode })
       const banner = warnings.length ? `> **Coverage warnings (read before trusting this report):**\n${warnings.map((w) => `> - ${w}`).join('\n')}\n\n` : ''
       return ok({
         format: format ?? 'markdown',

@@ -16,8 +16,8 @@ const positiveInt = (s: string): number => {
 }
 const registryOption = (): Option => new Option('--registry <dir>', 'registry directory (default: the bundled registry)')
 
-// One function per command, each registered here. To add a command, write `registerX(program, ctx, setCode)`
-// beside the others and call it from buildProgram.
+// To add a command, add a `program.command(...)` block in buildProgram below, calling a handler from ./commands/
+// that returns the exit code, and pass that to setCode.
 function buildProgram(ctx: Ctx, setCode: (c: number) => void): Command {
   const program = new Command('sentinel').description('Defensive security scanner').exitOverride()
   program.configureOutput({ writeOut: ctx.io.out, writeErr: ctx.io.err })

@@ -20,7 +20,7 @@ export type SarifLog = {
     tool: { driver: { name: 'Sentinel'; rules: { id: string; name: string; shortDescription: { text: string } }[] } }
     results: SarifResult[]
     // Coverage rides along so a consumer of the log alone cannot mistake "no results" for "all clear".
-    properties: { mode: 'full' | 'pure-reasoning'; not_checked: string[]; coverage: { files_scanned: number; truncated: boolean; skipped: Record<string, number> } }
+    properties: { mode: 'full' | 'pure-reasoning'; not_checked: string[]; coverage_warnings: string[]; coverage: { files_scanned: number; truncated: boolean; skipped: Record<string, number> } }
   }[]
 }
 
@@ -35,7 +35,7 @@ const loc = (file: string, line: number, text?: string): SarifLocation => ({
   ...(text ? { message: { text } } : {}),
 })
 
-export function toSarif(findings: Finding[], profile: TargetProfile, opts: { mode: 'full' | 'pure-reasoning' }): SarifLog {
+export function toSarif(findings: Finding[], profile: TargetProfile, opts: { mode: 'full' | 'pure-reasoning'; warnings?: string[] }): SarifLog {
   // Only verified findings: needs-review and candidates are unverified claims, dropped ones were disproved.
   const confirmed = findings.filter((f) => f.status === 'confirmed')
   const skipped: Record<string, number> = {}
@@ -63,6 +63,8 @@ export function toSarif(findings: Finding[], profile: TargetProfile, opts: { mod
           mode: opts.mode,
           // An empty results list from a pure-reasoning run must not read as all clear to a SARIF-only consumer.
           not_checked: opts.mode === 'pure-reasoning' ? ['dependency CVE detection', 'entropy-based secret scanning'] : [],
+          // Gaps the caller knows about (no stack derivable, registry load errors, thin technique coverage, no hunters).
+          coverage_warnings: opts.warnings ?? [],
           coverage: { files_scanned: profile.file_count, truncated: profile.truncated, skipped },
         },
       },

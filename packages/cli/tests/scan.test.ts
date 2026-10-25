@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import * as core from '@sentinel/core'
+import { removeClone } from '../src/commands/scan.js'
 import { run } from '../src/index.js'
 import type { Deps } from '../src/index.js'
 
@@ -71,9 +72,12 @@ describe('scan output', () => {
     expect(r.err).toMatch(/no hunter/i) // the warning path was taken, and stdout is still pure JSON
   })
 
-  test('SARIF states the reduced-coverage mode this build actually ran in', async () => {
-    const log = JSON.parse((await cli(['scan', express, '--format', 'sarif'])).out)
-    expect(JSON.stringify(log)).toMatch(/pure-reasoning|CVE|entropy/i)
+  test('SARIF carries the CLI-known coverage gaps in run properties.coverage_warnings', async () => {
+    const t = await tmpTarget({ 'main.tf': 'x\n' })
+    const run0 = JSON.parse((await cli(['scan', t, '--format', 'sarif', '--registry', badRegistry])).out).runs[0]
+    expect(run0.properties.mode).toBe('pure-reasoning')
+    const w: string[] = run0.properties.coverage_warnings
+    expect(w).toEqual(expect.arrayContaining([expect.stringMatching(/^No hunter agents/), expect.stringMatching(/^No stack could be derived/), expect.stringMatching(/^1 registry entry failed to load/)]))
   })
 })
 
@@ -149,9 +153,10 @@ describe('refusal and errors', () => {
   })
 })
 
-describe('--fail-on wiring', () => {
+describe('--fail-on wiring (when a gate can be evaluated)', () => {
+  const hunters = { huntersAvailable: true }
   test('passes the chosen band through to core decideExitCode, with the recorded findings', async () => {
-    const r = await cli(['scan', express, '--fail-on', 'high'])
+    const r = await cli(['scan', express, '--fail-on', 'high'], hunters)
     expect(r.code).toBe(0)
     expect(core.decideExitCode).toHaveBeenCalledWith([], 'high')
   })
@@ -163,11 +168,46 @@ describe('--fail-on wiring', () => {
 
   test('uses the exit code core decides', async () => {
     vi.mocked(core.decideExitCode).mockReturnValueOnce(1)
-    expect((await cli(['scan', express, '--fail-on', 'low'])).code).toBe(1)
+    expect((await cli(['scan', express, '--fail-on', 'low'], hunters)).code).toBe(1)
   })
 
   test('rejects a band that does not exist', async () => {
-    expect((await cli(['scan', express, '--fail-on', 'severe'])).code).toBe(2)
+    expect((await cli(['scan', express, '--fail-on', 'severe'], hunters)).code).toBe(2)
+  })
+})
+
+describe('--fail-on is a gate that must be able to trip', () => {
+  test('in this build (no hunters) it exits 2 and says the gate cannot be evaluated', async () => {
+    const r = await cli(['scan', express, '--fail-on', 'high'])
+    expect(r.code).toBe(2)
+    expect(r.err).toMatch(/gate cannot be evaluated/)
+    expect(r.err).toMatch(/No hunter agents/)
+    expect(core.decideExitCode).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    ['a stack with no techniques', { 'a.go': 'package main\n' }, badRegistry, /go: 0 techniques/],
+    ['no derivable stack', { 'main.tf': 'x\n' }, undefined, /No stack could be derived/],
+    ['registry load errors', { 'a.js': 'x\n' }, badRegistry, /registry entry failed to load/],
+  ])('even with hunters, %s exits 2', async (_, files, reg, msg) => {
+    const t = await tmpTarget(files)
+    const r = await cli(['scan', t, '--fail-on', 'high', ...(reg ? ['--registry', reg] : [])], { huntersAvailable: true })
+    expect(r.code).toBe(2)
+    expect(r.err).toMatch(msg)
+  })
+
+  test('without --fail-on the same scan still exits 0 with warnings', async () => {
+    expect((await cli(['scan', express])).code).toBe(0)
+  })
+})
+
+describe('clone removal guard', () => {
+  test('refuses to recursively delete a path that is not a Sentinel temp directory', async () => {
+    const d = await tmpTarget({ 'keep.txt': 'x' })
+    let err = ''
+    await removeClone(d, { out: () => undefined, err: (s) => void (err += s) })
+    expect(err).toMatch(/refused to delete/)
+    expect((await readdir(d)).length).toBe(1)
   })
 })
 

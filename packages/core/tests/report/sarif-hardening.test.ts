@@ -23,6 +23,11 @@ test('the mode is recorded so an empty pure-reasoning log is not read as all cle
   expect(toSarif([], profile, { mode: 'full' }).runs[0]!.properties.not_checked).toEqual([])
 })
 
+test('caller-supplied coverage warnings are carried in run properties, defaulting to an empty list', () => {
+  expect(toSarif([], profile, { mode: 'full', warnings: ['no stack'] }).runs[0]!.properties.coverage_warnings).toEqual(['no stack'])
+  expect(toSarif([], profile, { mode: 'full' }).runs[0]!.properties.coverage_warnings).toEqual([])
+})
+
 test('the schema rejects the errors that matter', () => {
   const path = fileURLToPath(new URL('../../../../tests/fixtures/sarif-schema-2.1.0.json', import.meta.url))
   const schema = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
