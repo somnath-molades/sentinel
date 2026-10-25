@@ -20,7 +20,7 @@ export type Hotspot = z.infer<typeof hotspotSchema>
 
 // Closed on purpose: every reason must be one the report can render.
 const skipRecordSchema = z
-  .object({ path: z.string().min(1), reason: z.enum(['minified', 'vendored', 'generated', 'binary', 'too-large', 'not-utf8', 'not-regular', 'unreadable']) })
+  .object({ path: z.string().min(1), reason: z.enum(['minified', 'vendored', 'generated', 'binary', 'too-large', 'not-utf8', 'symlink', 'not-regular', 'unreadable']) })
   .strict()
 export type SkipRecord = z.infer<typeof skipRecordSchema>
 

@@ -17,8 +17,27 @@ test('skips vendored, generated, minified and oversized files with reasons', asy
   expect(reasons['app.min.js']).toBe('minified')
   expect(reasons['pnpm-lock.yaml']).toBe('generated')
   expect(reasons['logo.png']).toBe('binary')
-  expect(reasons['huge.json']).toBe('too-large')
   expect(r.skipped.some((s) => s.path.includes('node_modules'))).toBe(true)
+})
+
+test('an oversized file is too-large at the default cap (built at runtime, not committed)', async () => {
+  const root = await tmpRoot()
+  try {
+    await writeFile(join(root, 'huge.json'), Buffer.alloc(1_048_577, 0x30))
+    await writeFile(join(root, 'edge.json'), '0\n'.repeat(524_288)) // exactly the cap, multi-line so it is not "minified"
+    const r = await walkTarget(root)
+    expect(r.skipped).toEqual([{ path: 'huge.json', reason: 'too-large' }])
+    expect(r.files.map((f) => f.path)).toEqual(['edge.json'])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('onFile receives each included file text from the walk, so nothing re-opens a path', async () => {
+  const seen: Record<string, string> = {}
+  const r = await walkTarget(fixture('express-vulnerable'), {}, (f, text) => void (seen[f.path] = text))
+  expect(Object.keys(seen).sort()).toEqual(r.files.map((f) => f.path).sort())
+  expect(seen['src/server.js']).toContain("app.delete('/users/:id'")
 })
 
 test('records every remaining skip class with its own reason', async () => {
@@ -28,7 +47,7 @@ test('records every remaining skip class with its own reason', async () => {
   expect(reasons['dist']).toBe('generated')
   expect(reasons['blob.dat']).toBe('binary') // NUL byte, no telltale extension
   expect(reasons['latin1.txt']).toBe('not-utf8')
-  expect(reasons['escape']).toBe('not-regular')
+  expect(reasons['escape']).toBe('symlink')
   expect(r.files.map((f) => f.path)).toEqual(['ok.js'])
   expect(r.truncated).toBe(false)
 })
@@ -49,8 +68,8 @@ test('does not follow any symlink, even one that stays inside the root, and says
     const r = await walkTarget(root)
     expect(r.files.map((f) => f.path)).toEqual(['real.js'])
     expect(r.skipped).toEqual([
-      { path: 'alias.js', reason: 'not-regular' },
-      { path: 'dir-alias', reason: 'not-regular' },
+      { path: 'alias.js', reason: 'symlink' },
+      { path: 'dir-alias', reason: 'symlink' },
     ])
   } finally {
     await rm(root, { recursive: true, force: true })

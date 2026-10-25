@@ -1,5 +1,4 @@
 import { basename } from 'node:path'
-import { readText } from './walk.js'
 import type { FileRecord } from './walk.js'
 
 export type StackInfo = {
@@ -75,8 +74,6 @@ const SUBSTRING: Record<string, Table> = {
   },
 }
 
-const MAX_MANIFEST_BYTES = 1_048_576
-
 function namesOf(file: string, text: string): string[] | null {
   if (file === 'package.json') {
     try {
@@ -95,8 +92,11 @@ function namesOf(file: string, text: string): string[] | null {
   return null
 }
 
-/** Declared dependencies only (plus file-name conventions for IaC/CI). Nothing is inferred from code, so nothing is guessed. */
-export async function detectStack(root: string, files: FileRecord[]): Promise<StackInfo> {
+const MANIFESTS = new Set(['package.json', 'requirements.txt', ...Object.keys(SUBSTRING)])
+export const isManifest = (path: string): boolean => MANIFESTS.has(basename(path))
+
+/** Declared dependencies only (plus file-name conventions for IaC/CI), from manifest text the walk already read; this does no I/O. Nothing is inferred from code, so nothing is guessed. */
+export function detectStack(files: FileRecord[], manifests: ReadonlyMap<string, string>): StackInfo {
   const found: Record<Category, Set<string>> = {
     frameworks: new Set(), auth_surfaces: new Set(), data_layer: new Set(), iac: new Set(), ci: new Set(), client_boundary: new Set(),
   }
@@ -113,8 +113,8 @@ export async function detectStack(root: string, files: FileRecord[]): Promise<St
 
     const table = name === 'package.json' ? NPM : name === 'requirements.txt' ? PIP : SUBSTRING[name]
     if (!table) continue
-    const text = await readText(root, f.path, MAX_MANIFEST_BYTES)
-    if (text === null) continue
+    const text = manifests.get(f.path)
+    if (text === undefined) continue
     const names = namesOf(name, text)
     // hasOwn: a hostile manifest may declare a dependency named "constructor" or "__proto__".
     if (names) for (const n of names) add(Object.hasOwn(table, n) ? table[n] : undefined)

@@ -1,8 +1,8 @@
 import { basename } from 'node:path'
 import type { ResolvedTarget } from '../scope/resolve-target.js'
 import type { Entrypoint, Hotspot, LangStat, TargetProfile } from '../schema/target-profile.js'
-import { detectStack } from './detect-stack.js'
-import { readText, walkTarget } from './walk.js'
+import { detectStack, isManifest } from './detect-stack.js'
+import { walkTarget } from './walk.js'
 import type { FileRecord, WalkOptions } from './walk.js'
 
 const JS_ROUTE = /\b(?:app|router|server|fastify)\.(get|post|put|patch|delete|all)\(\s*['"`]([^'"`]+)['"`]/g
@@ -15,15 +15,26 @@ const DATA = /\b(?:SELECT|INSERT|UPDATE|DELETE)\b[\s\S]{0,60}\b(?:FROM|INTO|SET)
 const UNTRUSTED = /\breq\.(?:body|query|params|headers)\b|\brequest\.(?:args|form|json)\b/
 const SECRET_ASSIGN = /\b(?:password|secret|api_?key|token)\w*\s*[:=]\s*['"][^'"\s]+['"]/i
 
-function routesIn(text: string, file: FileRecord, frameworks: string[]): Entrypoint[] {
-  const re = file.language === 'javascript' || file.language === 'typescript'
-    ? frameworks.some((f) => JS_ROUTE_FRAMEWORKS.includes(f)) ? JS_ROUTE : null
-    : file.language === 'python' && frameworks.some((f) => PY_ROUTE_FRAMEWORKS.includes(f)) ? PY_ROUTE : null
-  if (!re) return []
-  return [...text.matchAll(re)].map((m) => ({ path: file.path, kind: 'http-route' as const, detail: `${(m[1] ?? '').toUpperCase()} ${m[2] ?? ''}` }))
+type Scan = { file: FileRecord; js: Entrypoint[]; py: Entrypoint[]; auth: boolean; data: boolean; untrusted: boolean; secret: boolean }
+
+const routes = (text: string, file: FileRecord, re: RegExp): Entrypoint[] =>
+  [...text.matchAll(re)].map((m) => ({ path: file.path, kind: 'http-route' as const, detail: `${(m[1] ?? '').toUpperCase()} ${m[2] ?? ''}` }))
+
+/** Runs once per file inside the walk's single read; keeps only small findings, never the text. */
+function scan(text: string, file: FileRecord): Scan {
+  const js = file.language === 'javascript' || file.language === 'typescript'
+  return {
+    file,
+    js: js ? routes(text, file, JS_ROUTE) : [],
+    py: file.language === 'python' ? routes(text, file, PY_ROUTE) : [],
+    auth: AUTH.test(text),
+    data: DATA.test(text),
+    untrusted: UNTRUSTED.test(text),
+    secret: SECRET_ASSIGN.test(text),
+  }
 }
 
-function hotspotFor(text: string, file: FileRecord, hasRoutes: boolean): Hotspot | null {
+function hotspotFor(s: Scan, hasRoutes: boolean): Hotspot | null {
   const reasons: string[] = []
   const domains = new Set<string>()
   const flag = (domain: string, reason: string): void => {
@@ -31,18 +42,24 @@ function hotspotFor(text: string, file: FileRecord, hasRoutes: boolean): Hotspot
     reasons.push(reason)
   }
   if (hasRoutes) flag('authorization', 'defines HTTP routes; each needs an authorization check')
-  if (AUTH.test(text)) flag('authorization', 'touches authentication or authorization logic')
-  if (DATA.test(text)) flag('injection', 'accesses a data store')
-  if (UNTRUSTED.test(text)) flag('injection', 'reads untrusted request input')
-  if (basename(file.path).startsWith('.env')) flag('secrets', 'environment file committed to the repository')
-  else if (SECRET_ASSIGN.test(text)) flag('secrets', 'assigns a secret-like value in source')
-  return reasons.length === 0 ? null : { path: file.path, reason: reasons.join('; '), domains: [...domains] }
+  if (s.auth) flag('authorization', 'touches authentication or authorization logic')
+  if (s.data) flag('injection', 'accesses a data store')
+  if (s.untrusted) flag('injection', 'reads untrusted request input')
+  if (basename(s.file.path).startsWith('.env')) flag('secrets', 'environment file committed to the repository')
+  else if (s.secret) flag('secrets', 'assigns a secret-like value in source')
+  return reasons.length === 0 ? null : { path: s.file.path, reason: reasons.join('; '), domains: [...domains] }
 }
 
 export async function profileTarget(target: ResolvedTarget, opts: WalkOptions = {}): Promise<TargetProfile> {
   const root = target.root // already a realpath; never re-resolved (R15)
-  const { files, skipped, truncated } = await walkTarget(root, opts)
-  const stack = await detectStack(root, files)
+  const manifests = new Map<string, string>()
+  const scans: Scan[] = []
+  // Every file is opened exactly once, by the walk; detectors consume that text and never re-open a path.
+  const { files, skipped, truncated } = await walkTarget(root, opts, (f, text) => {
+    if (isManifest(f.path)) manifests.set(f.path, text)
+    if (f.language || basename(f.path).startsWith('.env')) scans.push(scan(text, f))
+  })
+  const stack = detectStack(files, manifests)
 
   const byLang = new Map<string, LangStat>()
   for (const f of files) {
@@ -53,15 +70,14 @@ export async function profileTarget(target: ResolvedTarget, opts: WalkOptions = 
     byLang.set(f.language, s)
   }
 
+  const useJs = stack.frameworks.some((f) => JS_ROUTE_FRAMEWORKS.includes(f))
+  const usePy = stack.frameworks.some((f) => PY_ROUTE_FRAMEWORKS.includes(f))
   const entrypoints: Entrypoint[] = []
   const hotspots: Hotspot[] = []
-  for (const f of files) {
-    if (!f.language && !basename(f.path).startsWith('.env')) continue
-    const text = await readText(root, f.path, opts.maxFileBytes ?? 1_048_576)
-    if (text === null) continue
-    const routes = routesIn(text, f, stack.frameworks)
-    entrypoints.push(...routes)
-    const h = hotspotFor(text, f, routes.length > 0)
+  for (const s of scans) {
+    const r = [...(useJs ? s.js : []), ...(usePy ? s.py : [])]
+    entrypoints.push(...r)
+    const h = hotspotFor(s, r.length > 0)
     if (h) hotspots.push(h)
   }
 

@@ -27,27 +27,40 @@ const LANGUAGES: Record<string, string> = {
  */
 const OPEN_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
 
-type Opened = { kind: 'ok'; size: number; prefix: Buffer } | { kind: 'skip'; reason: SkipRecord['reason'] }
+type Opened = { kind: 'ok'; size: number; text: string } | { kind: 'skip'; reason: SkipRecord['reason'] }
 
-/** Reads at most PREFIX_BYTES of a regular file and its size; never the whole file. */
-async function readPrefix(abs: string, maxBytes: number): Promise<Opened> {
+/**
+ * The ONLY place a target file is opened. Reads a bounded prefix first and classifies it; the rest of the file
+ * (at most maxBytes, checked before any allocation) is read only if the prefix passes. The text is handed to
+ * the caller so no later stage re-opens the path.
+ */
+async function readFileOnce(abs: string, maxBytes: number): Promise<Opened> {
   let fh
   try {
     fh = await open(abs, OPEN_FLAGS)
   } catch (e) {
-    return { kind: 'skip', reason: (e as { code?: string }).code === 'ELOOP' ? 'not-regular' : 'unreadable' }
+    return { kind: 'skip', reason: (e as { code?: string }).code === 'ELOOP' ? 'symlink' : 'unreadable' }
   }
   try {
     const st = await fh.stat()
     if (!st.isFile()) return { kind: 'skip', reason: 'not-regular' }
     if (st.size > maxBytes) return { kind: 'skip', reason: 'too-large' }
-    const buf = Buffer.alloc(Math.min(st.size, PREFIX_BYTES))
-    const { bytesRead } = await fh.read(buf, 0, buf.length, 0)
-    return { kind: 'ok', size: st.size, prefix: buf.subarray(0, bytesRead) }
+    const buf = Buffer.alloc(st.size)
+    const head = await fh.read(buf, 0, Math.min(st.size, PREFIX_BYTES), 0)
+    const reason = classifyPrefix(buf.subarray(0, head.bytesRead), st.size)
+    if (reason) return { kind: 'skip', reason }
+    let got = head.bytesRead
+    while (got < st.size) {
+      const { bytesRead } = await fh.read(buf, got, st.size - got, got)
+      if (bytesRead === 0) break
+      got += bytesRead
+    }
+    return { kind: 'ok', size: st.size, text: buf.toString('utf8', 0, got) }
   } catch {
     return { kind: 'skip', reason: 'unreadable' }
   } finally {
-    await fh.close()
+    // A failing close (EIO) must not replace the return value or abandon sibling entries.
+    await fh.close().catch(() => undefined)
   }
 }
 
@@ -67,7 +80,8 @@ function classifyPrefix(prefix: Buffer, size: number): SkipRecord['reason'] | nu
   return null
 }
 
-export async function walkTarget(root: string, opts: WalkOptions = {}): Promise<WalkResult> {
+/** `onFile` receives each INCLUDED file's text from the walk's single read, so detectors never re-open a path. */
+export async function walkTarget(root: string, opts: WalkOptions = {}, onFile?: (file: FileRecord, text: string) => void): Promise<WalkResult> {
   const maxFiles = opts.maxFiles ?? 10_000
   const maxFileBytes = opts.maxFileBytes ?? 1_048_576
   const files: FileRecord[] = []
@@ -84,7 +98,11 @@ export async function walkTarget(root: string, opts: WalkOptions = {}): Promise<
       const skip = (reason: SkipRecord['reason']): void => void skipped.push({ path, reason })
 
       // 1. Type from the directory listing alone: symlinks and special files are never opened or followed.
-      if (entry.isSymbolicLink() || !(entry.isFile() || entry.isDirectory())) {
+      if (entry.isSymbolicLink()) {
+        skip('symlink')
+        continue
+      }
+      if (!(entry.isFile() || entry.isDirectory())) {
         skip('not-regular')
         continue
       }
@@ -110,15 +128,10 @@ export async function walkTarget(root: string, opts: WalkOptions = {}): Promise<
         skip('binary')
         continue
       }
-      // 3. Only now is the file opened, and only a bounded prefix is read.
-      const o = await readPrefix(join(root, path), maxFileBytes)
+      // 3. Only now is the file opened, classified on a bounded prefix, and read once; later stages reuse that text.
+      const o = await readFileOnce(join(root, path), maxFileBytes)
       if (o.kind === 'skip') {
         skip(o.reason)
-        continue
-      }
-      const reason = classifyPrefix(o.prefix, o.size)
-      if (reason) {
-        skip(reason)
         continue
       }
       // Cap is checked only for a file that would be included, so a skipped file never sets `truncated`.
@@ -126,7 +139,9 @@ export async function walkTarget(root: string, opts: WalkOptions = {}): Promise<
         truncated = true
         return
       }
-      files.push({ path, bytes: o.size, language: LANGUAGES[ext] ?? null })
+      const rec: FileRecord = { path, bytes: o.size, language: LANGUAGES[ext] ?? null }
+      files.push(rec)
+      onFile?.(rec, o.text)
     }
   }
 
@@ -134,19 +149,3 @@ export async function walkTarget(root: string, opts: WalkOptions = {}): Promise<
   return { files, skipped, truncated }
 }
 
-/** Bounded UTF-8 read of an already-walked file, for detectors. Same open flags as the walk. Returns null if it cannot be read. */
-export async function readText(root: string, relPath: string, maxBytes: number): Promise<string | null> {
-  let fh
-  try {
-    fh = await open(join(root, relPath), OPEN_FLAGS)
-    const st = await fh.stat()
-    if (!st.isFile() || st.size > maxBytes) return null
-    const buf = Buffer.alloc(st.size)
-    const { bytesRead } = await fh.read(buf, 0, buf.length, 0)
-    return buf.toString('utf8', 0, bytesRead)
-  } catch {
-    return null
-  } finally {
-    await fh?.close()
-  }
-}
