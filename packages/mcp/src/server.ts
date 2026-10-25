@@ -4,12 +4,13 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { createSession, inputs } from './tools.js'
 import type { SessionOptions } from './tools.js'
 
-/** One server = one scan session (own findings store, own clone). Exactly the Phase 1 tool set. */
+/** One server = one scan session (own findings store, own clone). Exactly the Phase 2a tool set. */
 export function createSentinelServer(opts: SessionOptions = {}): { server: McpServer; close(): Promise<void> } {
   const s = createSession(opts)
   const server = new McpServer({ name: 'sentinel', version: '0.1.0' })
   server.registerTool('profile_target', { description: 'Scope-check and profile a target codebase (read-only). Starts a new scan session.', inputSchema: inputs.profile_target }, s.profile_target)
   server.registerTool('select_techniques', { description: 'Select detection techniques for a stack. Check `coverage`: "none" or "wildcard-only" means the stack is not (fully) covered, NOT that the code is clean.', inputSchema: inputs.select_techniques }, s.select_techniques)
+  server.registerTool('plan_hunts', { description: 'Plan the hunt for the profiled target: one assignment per vulnerability domain, always all of them. Each lists applicable `techniques` (own-stack first), `hotspot_paths` (where to look FIRST, never the only place: scan the whole target), and `coverage`. `coverage` means only "this domain can be hunted here": it is the best across the target\'s stacks, so "exact" does not mean every language is covered; read each technique\'s `stacks`. An empty `techniques` list with a `reason` means nothing was examined for that domain, NOT that it is clean.', inputSchema: {} }, s.plan_hunts)
   server.registerTool('record_finding', { description: 'Record candidate findings. Each is validated separately; rejected ones are listed with reasons.', inputSchema: inputs.record_finding }, s.record_finding)
   server.registerTool('verify_finding', { description: 'Record a verification verdict (and, for confirmations, severity factors 0..3) for a finding.', inputSchema: inputs.verify_finding }, s.verify_finding)
   server.registerTool('report', { description: 'Produce the report (markdown or sarif) and end the scan. Read `coverage_warnings`.', inputSchema: inputs.report }, s.report)

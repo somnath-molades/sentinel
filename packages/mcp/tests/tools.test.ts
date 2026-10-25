@@ -88,9 +88,43 @@ afterEach(async () => {
 })
 
 describe('tool set', () => {
-  test('registers exactly the Phase 1 tools', async () => {
+  test('registers exactly the Phase 2a tool set', async () => {
     const c = await connect()
-    expect((await c.listTools()).tools.map((t) => t.name).sort()).toEqual(['profile_target', 'record_finding', 'report', 'select_techniques', 'verify_finding'])
+    expect((await c.listTools()).tools.map((t) => t.name).sort()).toEqual(['plan_hunts', 'profile_target', 'record_finding', 'report', 'select_techniques', 'verify_finding'])
+  })
+})
+
+describe('plan_hunts', () => {
+  test('before any profile is a tool error, not a throw', async () => {
+    const c = await connect()
+    const r = await callRaw(c, 'plan_hunts', {})
+    expect(r.isError).toBe(true)
+    expect(r.content[0]!.text).toMatch(/profile/i)
+  })
+  test('returns ten assignments after profiling, carrying only the spec 5.1 fields and no file list', async () => {
+    const c = await connect()
+    await call(c, 'profile_target', { target: dir })
+    const { assignments } = json(await call(c, 'plan_hunts', {}))
+    expect(assignments).toHaveLength(10)
+    const allowed = ['coverage', 'domain', 'hotspot_paths', 'reason', 'techniques']
+    for (const a of assignments) expect(Object.keys(a).every((k) => allowed.includes(k))).toBe(true)
+  })
+  test('a domain with nothing to do arrives present, with an empty techniques array and a reason', async () => {
+    const reg = await mkdtemp(join(tmpdir(), 'sentinel-mcp-test-empty-reg-'))
+    try {
+      await mkdir(join(reg, 'packs'))
+      const c = await connect({ registryRoot: reg })
+      await call(c, 'profile_target', { target: dir })
+      const { assignments } = json(await call(c, 'plan_hunts', {}))
+      expect(assignments).toHaveLength(10)
+      for (const a of assignments) {
+        expect(a.techniques).toEqual([])
+        expect(a.coverage).toBe('none')
+        expect(a.reason).toMatch(/\S/)
+      }
+    } finally {
+      await rm(reg, { recursive: true, force: true })
+    }
   })
 })
 

@@ -10,6 +10,7 @@ import {
   STACKS,
   buildIndex,
   coverageGap,
+  planHunts,
   profileTarget,
   resolveTarget,
   selectTechniques,
@@ -120,6 +121,7 @@ export type Session = {
   select_techniques(a: { stack?: string; language?: string; vuln_class?: string; depth_tier?: (typeof DEPTH_TIERS)[number]; limit?: number }): Promise<ToolResult>
   record_finding(a: { reporting_agent: string; findings: unknown[] }): Promise<ToolResult>
   verify_finding(a: { finding_id: string; agent: string; outcome: 'confirmed' | 'disproved' | 'ambiguous'; reasoning: string; severity_factors?: unknown }): Promise<ToolResult>
+  plan_hunts(): Promise<ToolResult>
   report(a: { format?: 'markdown' | 'sarif' }): Promise<ToolResult>
   /** Deletes the GitHub clone, if any. Safe to call repeatedly. */
   cleanup(): Promise<void>
@@ -238,6 +240,11 @@ export function createSession(opts: SessionOptions = {}): Session {
         ...(registryErrors.length ? { registry_warning: registryWarning() } : {}),
         techniques: sel.techniques,
       })
+    }),
+
+    plan_hunts: guard<void>(async () => {
+      if (!state.profile) return fail('No target has been profiled in this session. Call profile_target first.')
+      return ok({ assignments: planHunts(state.profile, await loadIndex()) })
     }),
 
     record_finding: guard(async ({ reporting_agent, findings }) => {
