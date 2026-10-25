@@ -59,9 +59,18 @@ Four changes to core. The first three are recorded Phase 1 blockers; the fourth 
 
 ### 3.1 Agent identity
 
-`FindingInput` gains a required `reporting_agent: string`. `Verdict` already carries `agent`.
+`AddMeta` gains a required `reporting_agent: string`, and `Finding` gains `reporting_agents: string[]`. `Verdict` already carries `agent`.
 
-`recordVerdict` **refuses** when the verdict's agent equals the finding's `reporting_agent`. The refusal uses the store's existing throw, because a self-confirmation is a contract violation by the orchestrator rather than bad data from a target.
+**Corrected during implementation.** This section first said `FindingInput` gains the field and that a finding carries one reporting agent, singular. Both were wrong, and the plan's Task 6 carries the reasoning:
+
+- The field belongs on `AddMeta`, not `FindingInput`, because `FindingInput` is the fingerprint's input. Agent identity there would make two hunters' identical findings fingerprint differently and stop collapsing — the opposite of what dedupe is for.
+- A finding keeps a **set** of reporters, not one. Dedupe collapses two reports of the same defect into one finding, so recording only the first reporter would let the second verify its own finding and defeat the gate silently.
+
+`recordVerdict` **refuses** when the verdict's agent appears in the finding's `reporting_agents`. Ids are canonicalised (NFKC, trimmed, lowercased) on both sides, so padding or case variation cannot evade the gate. The refusal uses the store's existing throw, because a self-confirmation is a contract violation by the orchestrator rather than bad data from a target.
+
+`add` also refuses a reporter that already holds a verdict on that finding, closing the same hole from the other direction once reporters and verifiers share a pool.
+
+The `record_finding` tool carries `reporting_agent` as a **call-level** parameter, mapped onto each finding's `AddMeta` by the handler: one agent submits one batch, and a batch carrying several reporters would mean one subagent claiming several identities.
 
 This is what makes parent spec §6.2's separation claim observable. Today the claim holds only because the topology is expected to arrange it, and nothing can detect otherwise.
 
