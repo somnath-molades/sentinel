@@ -16,7 +16,9 @@ What the command-line self-scan demonstrates is narrower still: the pipeline (co
 
 ## Real-agent run
 
-One run, 2026-10-25, against `tests/fixtures/targets/express-vulnerable`. Two real agents on Claude Opus 5: one hunter (`hunter-integration-1`) assigned the `injection` domain, and one verifier (`verifier-integration-1`) under a different id. Both were given only their skill, the `plan_hunts` assignment, and the fixture. Neither was told what was planted — the fixture's answer-key comments were deliberately removed for this run.
+One run, 2026-10-25, against `tests/fixtures/targets/express-vulnerable`. Two real agents on Claude Opus 5: one hunter (`hunter-integration-1`) assigned the `injection` domain, and one verifier (`verifier-integration-1`) under a different id. Neither was told what was planted — the fixture's answer-key comments were deliberately removed for this run. Both agents' actual output is archived in `docs/phase-2a-agent-run/`.
+
+Exactly what each agent was given, because it affects what the run proves: its skill file, the `plan_hunts` output for the fixture **pasted in as text by the harness**, and the fixture itself. The hunter was additionally told that over-reporting and under-reporting are both failures and that another agent would try to disprove its output; the verifier was additionally told that `ambiguous` is valid and not to confirm on resemblance. Those instructions restate the skills, but they were in the dispatch as well, so the run does not show that the skill text alone produces this behaviour.
 
 ### What it found
 
@@ -38,6 +40,8 @@ The harness injected a third candidate pointing at `src/server.js:28` — the pa
 
 The verifier disproved it. It identified the line as the technique's own named safe form, tried four ways to rescue the claim (a second concatenated fragment, a disguised template literal, an unbindable identifier such as a table name or `ORDER BY` direction, and an array-form query parameter reaching the statement text) and found none, and additionally caught that the fabricated claim wrongly described the route as unauthenticated when line 27 carries `requireAuth`.
 
+Be careful how much that proves. The injected candidate sat on the form the technique's own prose explicitly names as safe and not to be flagged — the easiest available negative. One disproof of the easiest case is not evidence that the verifier reliably separates a bound value from an interpolated one in harder shapes: a mixed statement where a placeholder elsewhere does not protect an interpolated fragment, an identifier spliced where binding is impossible, or a value bound in one branch and concatenated in another. None of those were tried.
+
 ### The most important finding is about Sentinel, not the fixture
 
 The verifier observed that `src/server.js:33` is **also a missing-authorization defect**: an unauthenticated `DELETE /users/:id` removes an arbitrary user by id with no injection involved at all. The fixture makes the contrast explicit, since the adjacent `/sessions/:id` route carries both `requireAuth` and an ownership check returning 403.
@@ -47,11 +51,15 @@ That defect was **structurally unreportable in this run.** Only the `injection` 
 ### What this run did not exercise
 
 - **The tool boundary.** The two agents read source with their own file tools; they did not call `record_finding`, `verify_finding` or `report`, because reaching those through `scripts/hunt-integration.mjs` requires an operator attestation, and an automated process must not type a human's authorization statement. The attestation gate refused, which is the gate working as designed. The tool path — ingest validation, the walked-file check, the self-verification refusal, severity merging and both reporters — is covered deterministically by the stubbed-agent loop in `packages/mcp/tests/hunt-loop.test.ts`, with canned candidates and no claim about judgement. To record the tool leg of this run, an operator runs `node packages/cli/dist/bin.js init <target>` themselves and then the runner's `plan` and `run` steps.
+- **The skill's own loop.** Because the agents had no MCP session, they never called `plan_hunts` themselves, never joined `registry_root` to a technique `path` to reach the prose, and never read `target_root` to decide what to scan. The harness pasted the assignment in and the agents read the fixture by absolute path. Those three wirings were the point of two fixes in this phase, and they are covered only by tests — this run does not exercise them. An agent that could not locate the technique prose would have looked exactly like an agent that found nothing.
+- **The runner itself, on real output.** `scripts/hunt-integration.mjs`'s `run` and scoring path has never executed against real agent output, only against synthetic plumbing inputs. The found/missed/false-positive numbers above were scored by hand from the archived files, not produced by the runner. The runner is not in CI.
 - **The self-verification gate, live.** The verifier's id differed from the reporter's, so the refusal never triggered. It is pinned deterministically in the test suite instead.
 - **Nine domains.** No hunter ran for any domain but `injection`. Nothing here says anything about the other nine, and the sections above say why three of them cannot report anything at all.
 - **Repetition.** This is one run against one small fixture with two planted defects of the same class. It is evidence that the loop can work, not a measurement of how often it does. A single clean result is not a rate.
 
 ## Run
+
+**This section is stale against Phase 2a and has not been re-run.** It records a command-line scan from the Phase 1 tree at `2b6d102`. Phase 2a added C and C++ recognition and a C fixture, so the file and language counts below no longer describe HEAD — a measurement of HEAD gives roughly 153 files including TypeScript 60, JavaScript 6, shell 1 and C 2, with a `c` stack that did not exist when this table was written. Re-running it requires an operator attestation, which an automated process must not supply, so the numbers were left as recorded rather than quietly updated to values nobody measured. Treat the table as a Phase 1 artifact.
 
 | | |
 |---|---|
