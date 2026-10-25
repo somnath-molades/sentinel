@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs'
 import { cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import type { GhRunner } from '../src/tools.js'
@@ -112,6 +112,15 @@ describe('plan_hunts', () => {
       expect(typeof a.domain).toBe('string')
       expect(Array.isArray(a.hotspot_paths)).toBe(true)
     }
+  })
+  test('registry_root is absolute and joins with every returned technique path to a real file with a Detection section', async () => {
+    const c = await connect()
+    await call(c, 'profile_target', { target: dir })
+    const out = json(await call(c, 'plan_hunts', {}))
+    expect(isAbsolute(out.registry_root)).toBe(true)
+    const paths: string[] = out.assignments.flatMap((a: { techniques: { path: string }[] }) => a.techniques.map((t) => t.path))
+    expect(paths.length).toBeGreaterThan(0)
+    for (const p of paths) expect(await readFile(join(out.registry_root, p), 'utf8')).toMatch(/^## Detection$/m)
   })
   test('a registry entry that failed to load is reported beside the assignments that its absence emptied', async () => {
     const reg = await mkdtemp(join(tmpdir(), 'sentinel-mcp-test-reg-'))

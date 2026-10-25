@@ -1,5 +1,5 @@
 import { rm } from 'node:fs/promises'
-import { dirname, isAbsolute } from 'node:path'
+import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   DEPTH_TIERS,
@@ -247,7 +247,7 @@ export function createSession(opts: SessionOptions = {}): Session {
       const assignments = planHunts(state.profile, await loadIndex())
       // Same record select_techniques makes, so report has one coverage-warning path for both.
       for (const a of assignments) state.selections.set(`the ${a.domain} domain`, a.coverage)
-      return ok({ assignments, ...(registryErrors.length ? { registry_warning: registryWarning() } : {}) })
+      return ok({ registry_root: resolve(registryRoot),assignments, ...(registryErrors.length ? { registry_warning: registryWarning() } : {}) })
     }),
 
     record_finding: guard(async ({ reporting_agent, findings }) => {
