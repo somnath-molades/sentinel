@@ -4,3 +4,16 @@
 export const STACKS = ['agent-config', 'c', 'ci', 'cpp', 'generic', 'go', 'java', 'node', 'php', 'python'] as const
 // `generic` is the wildcard: a technique listing it applies to every stack.
 export const WILDCARD_STACK = 'generic'
+
+// profileTarget emits language names; the router speaks STACKS. This is the only bridge between them,
+// so every harness wrapper shares it. A language absent here has no stack: callers must surface that, not guess.
+const LANGUAGE_STACK: Record<string, (typeof STACKS)[number]> = {
+  javascript: 'node',
+  typescript: 'node',
+  python: 'python',
+  go: 'go',
+  php: 'php',
+  java: 'java',
+}
+export const KNOWN_LANGUAGES: readonly string[] = Object.keys(LANGUAGE_STACK)
+export const stackForLanguage = (language: string): (typeof STACKS)[number] | undefined => LANGUAGE_STACK[language.toLowerCase()]

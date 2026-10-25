@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -69,6 +69,39 @@ describe('profile_target', () => {
     expect(out.stacks.suggested).toEqual(['node'])
     expect(out.stacks.unmapped_languages).toEqual(['rust'])
     expect(out.stacks.warning).toMatch(/rust/)
+  })
+})
+
+describe('empty or partial inputs never read as clean', () => {
+  test('a target with no classifiable language warns at profile time and again in the report, even after selecting generic', async () => {
+    await rm(join(dir, 'src'), { recursive: true })
+    await rm(join(dir, 'main.rs'))
+    await writeFile(join(dir, 'main.c'), 'int main(void){return 0;}\n')
+    const c = await connect()
+    const p = json(await call(c, 'profile_target', { target: dir }))
+    expect(p.stacks.suggested).toEqual([])
+    expect(p.stacks.warning).toMatch(/No stack token could be derived/)
+    expect(json(await call(c, 'select_techniques', { stack: 'generic' })).coverage).toBe('exact')
+    const rep = json(await call(c, 'report', {}))
+    expect(rep.coverage_warnings.join(' ')).toMatch(/No stack token could be derived/)
+    expect(rep.report).toMatch(/No stack token could be derived/)
+  })
+  test('registry load errors are surfaced in selections, rejections and the report', async () => {
+    const reg = await mkdtemp(join(tmpdir(), 'sentinel-mcp-test-reg-'))
+    try {
+      await cp(join(process.cwd(), 'registry'), reg, { recursive: true })
+      const pack = (await readdir(join(reg, 'packs')))[0]!
+      const tdir = join(reg, 'packs', pack, 'techniques')
+      const bad = (await readdir(tdir))[0]!
+      await writeFile(join(tdir, bad), 'not a technique')
+      const c = await connect({ registryRoot: reg })
+      await call(c, 'profile_target', { target: dir })
+      const sel = json(await call(c, 'select_techniques', { stack: 'node' }))
+      expect(sel.registry_warning).toMatch(new RegExp(`1 registry entry failed to load.*${bad}`))
+      expect(json(await call(c, 'report', {})).coverage_warnings.join(' ')).toMatch(/failed to load/)
+    } finally {
+      await rm(reg, { recursive: true, force: true })
+    }
   })
 })
 
@@ -171,6 +204,18 @@ describe('verify_finding', () => {
       expect(JSON.stringify(rep.report)).not.toMatch(/traced to sink/)
     },
   )
+  test('returns the severity it kept, and makes an overwrite visible', async () => {
+    const { c, id } = await seeded()
+    const first = json(await call(c, 'verify_finding', { finding_id: id, ...V, severity_factors: FACTORS }))
+    expect(first.severity_kept.band).toBe('critical')
+    expect(first.severity_overwritten).toBeUndefined()
+    const low = { exploitability: 0, reachability: 0, blast_radius: 0, data_sensitivity: 0 }
+    const second = json(await call(c, 'verify_finding', { finding_id: id, agent: 'v2', outcome: 'confirmed', reasoning: 'r', severity_factors: low }))
+    expect(second.severity_kept.band).toBe('info')
+    expect(second.severity_overwritten.band).toBe('critical')
+    const third = json(await call(c, 'verify_finding', { finding_id: id, agent: 'v3', outcome: 'confirmed', reasoning: 'r' }))
+    expect(third.severity_kept.band).toBe('info') // no factors supplied: the kept one is reported, not hidden
+  })
   test('unknown finding id, unknown outcome and severity on a non-confirmation are tool errors', async () => {
     const { c, id } = await seeded()
     expect((await call(c, 'verify_finding', { finding_id: 'zzz', ...V })).isError).toBe(true)
@@ -237,12 +282,45 @@ describe('GitHub clone cleanup', () => {
       }
       return { code: 0, stdout: '' }
     }
-  test('the clone is deleted after report', async () => {
+  test('report does not delete the clone (repeatable query); it says so, and close deletes it', async () => {
+    const before = await sentinelTemps()
+    const s = createSentinelServer({ allowGitHub: true, gh: fakeGh('dir') })
+    const [x, y] = InMemoryTransport.createLinkedPair()
+    const client = new Client({ name: 't', version: '0' })
+    await Promise.all([s.server.connect(x), client.connect(y)])
+    expect((await call(client, 'profile_target', { target: 'https://github.com/a/b' })).isError).toBeFalsy()
+    expect((await sentinelTemps()).length).toBe(before.length + 1)
+    const rep = json(await call(client, 'report', {}))
+    expect(rep.clone_retained).toMatch(/stays on disk/)
+    expect((await sentinelTemps()).length).toBe(before.length + 1)
+    await call(client, 'report', {}) // re-running still works
+    await client.close()
+    await s.close()
+    expect(await sentinelTemps()).toEqual(before)
+  })
+  test('a second profile_target deletes the first clone and says so', async () => {
     const before = await sentinelTemps()
     const c = await connect({ allowGitHub: true, gh: fakeGh('dir') })
-    expect((await call(c, 'profile_target', { target: 'https://github.com/a/b' })).isError).toBeFalsy()
-    expect((await sentinelTemps()).length).toBe(before.length + 1)
-    await call(c, 'report', {})
+    await call(c, 'profile_target', { target: 'https://github.com/a/b' })
+    const out = json(await call(c, 'profile_target', { target: dir }))
+    expect(out.previous_clone_deleted).toMatch(/deleted/)
+    expect(await sentinelTemps()).toEqual(before)
+  })
+  test('overlapping profile_target calls leak no clone', async () => {
+    const before = await sentinelTemps()
+    const slow: GhRunner = async (args) => {
+      if (args[1] === 'clone') await new Promise((r) => setTimeout(r, 30))
+      return fakeGh('dir')(args, 0)
+    }
+    const s = createSentinelServer({ allowGitHub: true, gh: slow })
+    const [x, y] = InMemoryTransport.createLinkedPair()
+    const client = new Client({ name: 't', version: '0' })
+    await Promise.all([s.server.connect(x), client.connect(y)])
+    const rs = await Promise.all([1, 2, 3].map(() => call(client, 'profile_target', { target: 'https://github.com/a/b' })))
+    expect(rs.every((r) => !r.isError)).toBe(true)
+    expect((await sentinelTemps()).length).toBe(before.length + 1) // only the latest clone is alive
+    await client.close()
+    await s.close()
     expect(await sentinelTemps()).toEqual(before)
   })
   test('the clone is deleted when the server closes mid-scan', async () => {
@@ -262,6 +340,7 @@ describe('GitHub clone cleanup', () => {
     const c = await connect({ allowGitHub: true, gh: fakeGh('file') })
     const r = await call(c, 'profile_target', { target: 'https://github.com/a/b' })
     expect(r.isError).toBe(true)
+    expect(r.content[0]!.text).toMatch(/clone was deleted/)
     expect(await sentinelTemps()).toEqual(before)
   })
 })

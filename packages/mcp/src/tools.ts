@@ -4,16 +4,18 @@ import { fileURLToPath } from 'node:url'
 import {
   DEPTH_TIERS,
   FindingsStore,
+  KNOWN_LANGUAGES,
   STACKS,
   buildIndex,
   computeSeverity,
   profileTarget,
   resolveTarget,
   selectTechniques,
+  stackForLanguage,
   toMarkdown,
   toSarif,
 } from '@sentinel/core'
-import type { Finding, RegistryIndex, ResolvedTarget, Severity, TargetProfile } from '@sentinel/core'
+import type { Finding, RegistryIndex, ResolvedTarget, SchemaError, Severity, TargetProfile } from '@sentinel/core'
 import { z } from 'zod'
 
 // Every value in this file that came from an agent is untrusted. Handlers validate and translate; all
@@ -40,18 +42,21 @@ const fail = (message: string, extra?: Record<string, unknown>): ToolResult => (
 const reason = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 const nonBlank = (s: string): boolean => s.trim() !== ''
 
-// The router's vocabulary is closed (STACKS). profileTarget emits language names; this is the seam.
-// Unmapped languages are refused or flagged, never passed through: an unknown token silently matches
-// only `generic` techniques, which reads as a thin scan rather than an unexamined one.
-const LANGUAGE_STACK: Record<string, (typeof STACKS)[number]> = {
-  javascript: 'node',
-  typescript: 'node',
-  python: 'python',
-  go: 'go',
-  php: 'php',
-  java: 'java',
+// The language -> stack table lives in core (stackForLanguage). This file owns only the seam: unmapped
+// languages are refused or flagged, never passed through (an unknown token silently matches only `generic`).
+const stackFor = stackForLanguage
+
+// Profile languages -> stack tokens. Empty `suggested` is the dangerous case (C/C++, Terraform, YAML-only repos
+// have no classified language): without a warning, an empty result reads as clean rather than unexamined.
+function stackInfo(profile: TargetProfile): { suggested: string[]; unmapped_languages: string[]; warning?: string } {
+  const langs = profile.languages.map((l) => l.language)
+  const suggested = [...new Set(langs.flatMap((l) => stackFor(l) ?? []))].sort()
+  const unmapped = langs.filter((l) => stackFor(l) === undefined)
+  const parts: string[] = []
+  if (unmapped.length) parts.push(`No technique stack exists for: ${unmapped.join(', ')}. Code in those languages will NOT be examined by stack-specific techniques; do not report it as clean.`)
+  if (suggested.length === 0) parts.push(`No stack token could be derived from this target's files. Stack-specific techniques will not apply unless you choose a stack explicitly with select_techniques; an empty report is NOT a clean result.`)
+  return { suggested, unmapped_languages: unmapped, ...(parts.length ? { warning: parts.join(' ') } : {}) }
 }
-const stackFor = (language: string): string | undefined => LANGUAGE_STACK[language.toLowerCase()]
 
 const stackEnum = z.enum(STACKS)
 const factorSchema = z.literal([0, 1, 2, 3])
@@ -118,9 +123,20 @@ export function createSession(opts: SessionOptions = {}): Session {
   const mode: Mode = opts.mode ?? 'pure-reasoning'
   let state: State = { ...fresh() }
   let index: RegistryIndex | undefined
+  let registryErrors: SchemaError[] = []
   let cloneDir: string | undefined
 
-  const loadIndex = async (): Promise<RegistryIndex> => (index ??= (await buildIndex(registryRoot)).index)
+  const loadIndex = async (): Promise<RegistryIndex> => {
+    if (!index) {
+      const built = await buildIndex(registryRoot)
+      index = built.index
+      registryErrors = built.errors // core returns these so a consumer can surface them; dropping them would silently shrink coverage
+    }
+    return index
+  }
+
+  const registryWarning = (): string =>
+    `${registryErrors.length} registry entr${registryErrors.length === 1 ? 'y' : 'ies'} failed to load and are missing from coverage: ${registryErrors.map((e) => e.file).join(', ')}.`
 
   // Chained, so a second caller (e.g. onclose racing close()) waits for the delete already in flight.
   let deleting: Promise<void> = Promise.resolve()
@@ -130,6 +146,17 @@ export function createSession(opts: SessionOptions = {}): Session {
     if (d) deleting = deleting.then(() => rm(d, { recursive: true, force: true }))
     return deleting
   }
+  // profile_target is serialised: it owns the single clone slot and resets session state, so two overlapping
+  // calls would otherwise overwrite each other's clone path (leaking a copy of user source) or delete a clone
+  // that the other call is still profiling. A Set would fix the leak but not that second hazard.
+  let profiling: Promise<unknown> = Promise.resolve()
+  const serialised =
+    <A>(fn: (a: A) => Promise<ToolResult>) =>
+    (a: A): Promise<ToolResult> => {
+      const run = profiling.then(() => fn(a))
+      profiling = run.catch(() => undefined)
+      return run
+    }
 
   // Errors return, they never cross the protocol as exceptions.
   const guard =
@@ -145,33 +172,26 @@ export function createSession(opts: SessionOptions = {}): Session {
   return {
     cleanup,
 
-    profile_target: guard(async ({ target }) => {
+    profile_target: serialised(guard(async ({ target }) => {
+      const hadClone = cloneDir !== undefined
       await cleanup()
+      const note = hadClone ? { previous_clone_deleted: 'The temporary clone from the previous GitHub target was deleted; its files are no longer on disk.' } : {}
       state = { ...fresh() }
       const r = await resolveTarget(target, { allowGitHub: opts.allowGitHub ?? false, ...(opts.gh ? { gh: opts.gh } : {}) })
-      if (!r.ok) return fail(`Target refused (scope lock): ${r.error.reason}`)
+      if (!r.ok) return fail(`Target refused (scope lock): ${r.error.reason}`, hadClone ? note : undefined)
       // The clone lives in a temp dir <tmp>/sentinel-XXXX/<repo>; the caller (us) owns deleting it.
       if (r.value.kind === 'github') cloneDir = dirname(r.value.root)
       try {
         const profile = await profileTarget(r.value) // uses r.value.root as resolved; the input path is never re-resolved
         state.target = r.value
         state.profile = profile
-        const langs = profile.languages.map((l) => l.language)
-        const suggested = [...new Set(langs.flatMap((l) => stackFor(l) ?? []))].sort()
-        const unmapped = langs.filter((l) => stackFor(l) === undefined)
-        return ok({
-          profile,
-          stacks: {
-            suggested,
-            unmapped_languages: unmapped,
-            ...(unmapped.length ? { warning: `No technique stack exists for: ${unmapped.join(', ')}. Code in those languages will NOT be examined by stack-specific techniques; do not report it as clean.` } : {}),
-          },
-        })
+        return ok({ ...note, profile, stacks: stackInfo(profile) })
       } catch (e) {
+        const had = cloneDir !== undefined
         await cleanup()
-        return fail(`Profiling failed: ${reason(e)}`)
+        return fail(`Profiling failed: ${reason(e)}${had ? ' The temporary clone was deleted.' : ''}`)
       }
-    }),
+    })),
 
     select_techniques: guard(async (a) => {
       if (a.stack !== undefined && a.language !== undefined) return fail('Give either stack or language, not both.')
@@ -180,7 +200,7 @@ export function createSession(opts: SessionOptions = {}): Session {
         stack = stackFor(a.language)
         if (stack === undefined) {
           return fail(
-            `No technique stack is known for language "${a.language}". Known languages: ${Object.keys(LANGUAGE_STACK).join(', ')}. Sentinel cannot examine this code with stack-specific techniques; do not report it as clean.`,
+            `No technique stack is known for language "${a.language}". Known languages: ${KNOWN_LANGUAGES.join(', ')}. Sentinel cannot examine this code with stack-specific techniques; do not report it as clean.`,
           )
         }
       }
@@ -199,7 +219,13 @@ export function createSession(opts: SessionOptions = {}): Session {
           : sel.match === 'wildcard-only'
             ? `Only generic techniques exist for ${what}; no technique targets this stack specifically. Coverage is partial, so the absence of findings is not a clean result.`
             : undefined
-      return ok({ stack: stack ?? null, coverage: sel.match, ...(warning ? { warning } : {}), techniques: sel.techniques })
+      return ok({
+        stack: stack ?? null,
+        coverage: sel.match,
+        ...(warning ? { warning } : {}),
+        ...(registryErrors.length ? { registry_warning: registryWarning() } : {}),
+        techniques: sel.techniques,
+      })
     }),
 
     record_finding: guard(async ({ findings }) => {
@@ -211,7 +237,7 @@ export function createSession(opts: SessionOptions = {}): Session {
         const p = findingSchema.safeParse(raw)
         if (!p.success) return rejected.push({ index: i, reason: p.error.issues.map((x) => `${x.path.join('.') || '(finding)'}: ${x.message}`).join('; ') })
         const v = p.data
-        if (!known.has(v.technique_id)) return rejected.push({ index: i, reason: `technique_id: unknown technique "${v.technique_id}"` })
+        if (!known.has(v.technique_id)) return rejected.push({ index: i, reason: `technique_id: unknown technique "${v.technique_id}"${registryErrors.length ? ` (note: ${registryWarning()})` : ''}` })
         try {
           accepted.push(state.store.add({ technique_id: v.technique_id, file: v.file, line: v.line, snippet: v.snippet }, { depth_tier: v.depth_tier, reachability: v.reachability }))
         } catch (e) {
@@ -237,8 +263,15 @@ export function createSession(opts: SessionOptions = {}): Session {
         severity = computeSeverity(f.data)
       }
       const finding = state.store.recordVerdict(a.finding_id, { agent: a.agent, outcome: a.outcome, reasoning: a.reasoning })
+      const previous = state.severities.get(a.finding_id)
       if (severity) state.severities.set(a.finding_id, severity)
-      return ok({ finding: severity ? { ...finding, severity } : finding })
+      const kept = state.severities.get(a.finding_id)
+      // Overwrites are visible: the caller sees which severity the report will use and what it replaced.
+      return ok({
+        finding: kept ? { ...finding, severity: kept } : finding,
+        severity_kept: kept ?? null,
+        ...(severity && previous ? { severity_overwritten: previous } : {}),
+      })
     }),
 
     report: guard(async ({ format }) => {
@@ -247,27 +280,30 @@ export function createSession(opts: SessionOptions = {}): Session {
       const findings = state.store.list().map((f) => ({ ...f, ...(state.severities.has(f.id) ? { severity: state.severities.get(f.id) } : {}) }) as Finding)
 
       const warnings: string[] = []
+      await loadIndex().catch((e: unknown) => warnings.push(`The technique registry could not be loaded (${reason(e)}): nothing was examined.`))
+      if (registryErrors.length) warnings.push(registryWarning())
       if (mode === 'pure-reasoning') warnings.push('Reduced coverage (pure-reasoning): no dependency CVE checks and no entropy-based secret scanning were run.')
       if (state.selections.size === 0) warnings.push('select_techniques was never called in this session: no techniques were applied, so nothing was examined. An empty report is not a clean result.')
       for (const [what, match] of state.selections) {
         if (match === 'none') warnings.push(`No techniques exist for ${what}: nothing was examined for it.`)
         else if (match === 'wildcard-only') warnings.push(`Only generic techniques exist for ${what}: partial coverage.`)
       }
-      const unmapped = profile.languages.map((l) => l.language).filter((l) => stackFor(l) === undefined)
-      if (unmapped.length) warnings.push(`Languages with no technique stack were not examined by stack-specific techniques: ${unmapped.join(', ')}.`)
+      const stacks = stackInfo(profile)
+      if (stacks.warning) warnings.push(stacks.warning)
       if (state.rejected) warnings.push(`${state.rejected} finding(s) were rejected at ingest and are NOT in this report.`)
 
       const body = format === 'sarif' ? toSarif(findings, profile, { mode }) : toMarkdown(findings, profile, { mode })
       const banner = warnings.length ? `> **Coverage warnings (read before trusting this report):**\n${warnings.map((w) => `> - ${w}`).join('\n')}\n\n` : ''
-      const out = ok({
+      return ok({
         format: format ?? 'markdown',
         coverage_warnings: warnings,
         findings_recorded: findings.length,
         findings_rejected: state.rejected,
         report: typeof body === 'string' ? banner + body : body,
+        // report is a repeatable read-only query, so it does not delete the clone; that happens on the next
+        // profile_target, on profiling failure, and when the server closes.
+        ...(cloneDir ? { clone_retained: 'The GitHub clone stays on disk until the next profile_target or the server closes, then it is deleted.' } : {}),
       })
-      await cleanup() // the scan is complete: do not leave a copy of the user's source in the temp dir
-      return out
     }),
   }
 }
