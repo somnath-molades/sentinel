@@ -260,6 +260,7 @@ export function createSession(opts: SessionOptions = {}): Session {
 
     record_finding: guard(async ({ reporting_agent, findings }) => {
       if (!state.profile) return fail('No target has been profiled in this session. Call profile_target first.')
+      const truncated = state.profile.truncated
       const idx = await loadIndex()
       const known = new Set(idx.techniques.map((t) => t.id))
       const accepted: Finding[] = []
@@ -270,7 +271,11 @@ export function createSession(opts: SessionOptions = {}): Session {
         const v = p.data
         if (!known.has(v.technique_id)) return rejected.push({ index: i, reason: `technique_id: unknown technique "${v.technique_id}"${registryErrors.length ? ` (note: ${registryWarning()})` : ''}` })
         const file = walkedForm(v.file)
-        if (!state.walked.has(file)) return rejected.push({ index: i, reason: `file: "${v.file}" is not in the set of files Sentinel walked in this target; refusing a path no one read` })
+        if (!state.walked.has(file)) {
+          // Strict on purpose, but honest: the file may exist and the agent may have read it; Sentinel's own coverage limits put it outside the set.
+          const cut = truncated ? ' This scan hit its file limit, so files late in the tree were not walked.' : ''
+          return rejected.push({ index: i, reason: `file: "${v.file}" is not among the files Sentinel walked in this target. It may exist but not have been covered: files that were skipped (too large, minified, binary, unreadable, a symlink) or lie past the scan's file limit are not in the walked set, and a finding on one cannot be recorded.${cut}` })
+        }
         try {
           accepted.push(state.store.add({ technique_id: v.technique_id, file, line: v.line, snippet: v.snippet }, { depth_tier: v.depth_tier, reachability: v.reachability, reporting_agent }))
         } catch (e) {
