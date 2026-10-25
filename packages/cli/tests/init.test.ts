@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, realpathSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -44,7 +44,7 @@ test('displays AUTHORIZATION.md verbatim and hashes exactly what was shown', asy
 })
 
 // Every near-miss is a refusal: non-zero, nothing on disk (not even the directory).
-test.each([['y'], ['Y'], ['YES'], ['Yes'], ['yes '], [' yes'], ['yes.'], [''], ['  '], ['no'], ['\t']])('input %j is a refusal and leaves nothing behind', async (word) => {
+test.each([['y'], ['Y'], ['ye'], ['yes.'], ['yess'], ['yes please'], [''], ['  '], ['no'], ['\t']])('input %j is a refusal and leaves nothing behind', async (word) => {
   const cwd = await tmp()
   const r = await init(cwd, [word, 'no'])
   expect(r.code).not.toBe(0)
@@ -59,9 +59,22 @@ test('EOF at the attestation prompt is a refusal', async () => {
   expect(readdirSync(cwd)).toEqual([])
 })
 
-test('a Windows line ending after yes is accepted', async () => {
+// A whole word typed deliberately counts; surrounding whitespace and capitalisation do not matter.
+test.each([['YES'], ['Yes'], ['yes '], [' yes'], ['yes\r'], ['\tyes\t']])('input %j is accepted as the word', async (word) => {
   const cwd = await tmp()
-  expect((await init(cwd, ['yes\r', 'no'])).code).toBe(0)
+  expect((await init(cwd, [word, ' No '])).code).toBe(0)
+  expect(readConsent(cwd)).not.toBeNull()
+})
+
+test('a corrupt consent record is an error naming the file and is not overwritten', async () => {
+  const cwd = await tmp()
+  await mkdir(join(cwd, '.sentinel'))
+  await writeFile(join(cwd, '.sentinel', 'consent.json'), '{garbage')
+  const r = await init(cwd, ['yes', 'no'])
+  expect(r.code).not.toBe(0)
+  expect(r.err).toContain('consent.json')
+  expect(r.err).not.toMatch(/Internal error/)
+  expect(await readFile(join(cwd, '.sentinel', 'consent.json'), 'utf8')).toBe('{garbage')
 })
 
 test('declining the toolchain prints the coverage warning naming what is lost', async () => {

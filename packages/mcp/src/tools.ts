@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url'
 import {
   DEPTH_TIERS,
   FindingsStore,
+  attestationRefusal,
+  loadAuthorization,
   KNOWN_LANGUAGES,
   STACKS,
   buildIndex,
@@ -29,6 +31,8 @@ export type SessionOptions = {
   /** Operator decision, never agent input: whether GitHub targets may be cloned. */
   allowGitHub?: boolean
   gh?: GhRunner
+  /** Where `.sentinel/consent.json` lives (the user's own directory, never a target). Defaults to the server's working directory. */
+  consentRoot?: string
   /** What this server actually ran. Defaults to 'pure-reasoning': it runs no CVE or entropy tooling. */
   mode?: Mode
 }
@@ -182,6 +186,11 @@ export function createSession(opts: SessionOptions = {}): Session {
       // The clone lives in a temp dir <tmp>/sentinel-XXXX/<repo>; the caller (us) owns deleting it.
       if (r.value.kind === 'github') cloneDir = dirname(r.value.root)
       try {
+        const refusal = attestationRefusal(opts.consentRoot ?? process.cwd(), r.value, loadAuthorization())
+        if (refusal) {
+          await cleanup()
+          return fail(`Target refused (attestation): ${refusal}`)
+        }
         const profile = await profileTarget(r.value) // uses r.value.root as resolved; the input path is never re-resolved
         state.target = r.value
         state.profile = profile

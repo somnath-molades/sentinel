@@ -1,20 +1,23 @@
-import { cp, mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
+import { cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import type { GhRunner } from '../src/tools.js'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { SENTINEL_CORE_VERSION, attestationHash, loadAuthorization, readConsent, writeConsent } from '@sentinel/core'
 import { createSentinelServer } from '../src/server.js'
 
 type Opts = Parameters<typeof createSentinelServer>[0]
 type Res = { isError?: boolean; content: { type: string; text: string }[] }
 
 let dir: string
+let consent: string // the user's own directory holding .sentinel/consent.json, separate from every target
 let closers: (() => Promise<void>)[] = []
 
 async function connect(opts: Opts = {}): Promise<Client> {
-  const s = createSentinelServer(opts)
+  const s = createSentinelServer({ consentRoot: consent, ...opts })
   const [a, b] = InMemoryTransport.createLinkedPair()
   const client = new Client({ name: 'test', version: '0' })
   await Promise.all([s.server.connect(a), client.connect(b)])
@@ -24,7 +27,25 @@ async function connect(opts: Opts = {}): Promise<Client> {
   })
   return client
 }
-const call = async (c: Client, name: string, args: Record<string, unknown>): Promise<Res> => (await c.callTool({ name, arguments: args })) as Res
+// Attests exactly what a user would have attested with `sentinel init <target>`: the realpathed root, or github:owner/repo.
+function attest(target: string): void {
+  const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)$/.exec(target)
+  let id: string
+  try {
+    id = m ? `github:${m[1]}/${m[2]}`.toLowerCase() : realpathSync(target)
+  } catch {
+    return // out of scope: leave it unattested, the scope lock refuses it
+  }
+  const text = loadAuthorization()
+  const prior = readConsent(consent)
+  const base = prior ?? { schema_version: 1 as const, mode: 'pure-reasoning' as const, sentinel_version: SENTINEL_CORE_VERSION, attested_at: new Date().toISOString(), attestation_text_hash: attestationHash(text), targets: [] }
+  writeConsent(consent, { ...base, targets: [...base.targets, { target: id, attested_at: new Date().toISOString(), attestation_text_hash: attestationHash(text) }] })
+}
+const callRaw = async (c: Client, name: string, args: Record<string, unknown>): Promise<Res> => (await c.callTool({ name, arguments: args })) as Res
+const call = async (c: Client, name: string, args: Record<string, unknown>): Promise<Res> => {
+  if (name === 'profile_target' && typeof args.target === 'string') attest(args.target)
+  return callRaw(c, name, args)
+}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const json = (r: Res): any => JSON.parse(r.content[0]!.text)
 
@@ -33,6 +54,7 @@ const FACTORS = { exploitability: 3, reachability: 3, blast_radius: 2, data_sens
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'sentinel-mcp-test-'))
+  consent = await mkdtemp(join(tmpdir(), 'mcp-consent-'))
   await mkdir(join(dir, 'src'))
   await writeFile(join(dir, 'src', 'app.js'), 'const express = require("express")\napp.get("/u", (req, res) => db.query("x" + req.query.id))\n')
   await writeFile(join(dir, 'main.rs'), 'fn main() {}\n')
@@ -41,6 +63,7 @@ afterEach(async () => {
   for (const c of closers) await c()
   closers = []
   await rm(dir, { recursive: true, force: true })
+  await rm(consent, { recursive: true, force: true })
 })
 
 describe('tool set', () => {
@@ -282,9 +305,17 @@ describe('GitHub clone cleanup', () => {
       }
       return { code: 0, stdout: '' }
     }
+  test('an unattested GitHub target is refused and its clone is deleted', async () => {
+    const before = await sentinelTemps()
+    const c = await connect({ allowGitHub: true, gh: fakeGh('dir') })
+    const r = await callRaw(c, 'profile_target', { target: 'https://github.com/a/b' })
+    expect(r.isError).toBe(true)
+    expect(r.content[0]!.text).toContain('Not attested: github:a/b')
+    expect(await sentinelTemps()).toEqual(before)
+  })
   test('report does not delete the clone (repeatable query); it says so, and close deletes it', async () => {
     const before = await sentinelTemps()
-    const s = createSentinelServer({ allowGitHub: true, gh: fakeGh('dir') })
+    const s = createSentinelServer({ consentRoot: consent, allowGitHub: true, gh: fakeGh('dir') })
     const [x, y] = InMemoryTransport.createLinkedPair()
     const client = new Client({ name: 't', version: '0' })
     await Promise.all([s.server.connect(x), client.connect(y)])
@@ -312,7 +343,7 @@ describe('GitHub clone cleanup', () => {
       if (args[1] === 'clone') await new Promise((r) => setTimeout(r, 30))
       return fakeGh('dir')(args, 0)
     }
-    const s = createSentinelServer({ allowGitHub: true, gh: slow })
+    const s = createSentinelServer({ consentRoot: consent, allowGitHub: true, gh: slow })
     const [x, y] = InMemoryTransport.createLinkedPair()
     const client = new Client({ name: 't', version: '0' })
     await Promise.all([s.server.connect(x), client.connect(y)])
@@ -325,7 +356,7 @@ describe('GitHub clone cleanup', () => {
   })
   test('the clone is deleted when the server closes mid-scan', async () => {
     const before = await sentinelTemps()
-    const s = createSentinelServer({ allowGitHub: true, gh: fakeGh('dir') })
+    const s = createSentinelServer({ consentRoot: consent, allowGitHub: true, gh: fakeGh('dir') })
     const [a, b] = InMemoryTransport.createLinkedPair()
     const client = new Client({ name: 't', version: '0' })
     await Promise.all([s.server.connect(a), client.connect(b)])
@@ -342,5 +373,45 @@ describe('GitHub clone cleanup', () => {
     expect(r.isError).toBe(true)
     expect(r.content[0]!.text).toMatch(/clone was deleted/)
     expect(await sentinelTemps()).toEqual(before)
+  })
+})
+
+describe('attestation is enforced (spec 9.2)', () => {
+  test('an unattested target is refused as a tool error naming the target, and no session state is created', async () => {
+    const c = await connect()
+    const r = await callRaw(c, 'profile_target', { target: dir })
+    expect(r.isError).toBe(true)
+    expect(r.content[0]!.text).toContain(`Not attested: ${realpathSync(dir)}`)
+    expect(r.content[0]!.text).toMatch(/sentinel init/)
+    expect((await callRaw(c, 'report', {})).isError).toBe(true) // nothing was profiled
+  })
+  test('the target is profiled once it has been attested', async () => {
+    const c = await connect()
+    expect((await callRaw(c, 'profile_target', { target: dir })).isError).toBe(true)
+    attest(dir)
+    expect((await callRaw(c, 'profile_target', { target: dir })).isError).toBeFalsy()
+  })
+  test('attesting target A does not authorize target B', async () => {
+    const other = await mkdtemp(join(tmpdir(), 'sentinel-mcp-other-'))
+    try {
+      await writeFile(join(other, 'a.js'), '1\n')
+      const c = await connect()
+      attest(dir)
+      expect((await callRaw(c, 'profile_target', { target: dir })).isError).toBeFalsy()
+      const r = await callRaw(c, 'profile_target', { target: other })
+      expect(r.isError).toBe(true)
+      expect(r.content[0]!.text).toContain(`Not attested: ${realpathSync(other)}`)
+    } finally {
+      await rm(other, { recursive: true, force: true })
+    }
+  })
+  test('a corrupt consent record is an error naming the file, not a reset', async () => {
+    await mkdir(join(consent, '.sentinel'))
+    await writeFile(join(consent, '.sentinel', 'consent.json'), 'garbage')
+    const c = await connect()
+    const r = await callRaw(c, 'profile_target', { target: dir })
+    expect(r.isError).toBe(true)
+    expect(r.content[0]!.text).toContain('consent.json')
+    expect(await readFile(join(consent, '.sentinel', 'consent.json'), 'utf8')).toBe('garbage')
   })
 })

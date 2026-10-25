@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -20,10 +21,20 @@ const fixture = (...p: string[]): string => join(root, 'tests/fixtures', ...p)
 const express = fixture('targets/express-vulnerable')
 const badRegistry = fixture('registry/one-bad-entry')
 
-async function cli(argv: string[], deps: Deps = {}): Promise<{ code: number; out: string; err: string }> {
+// Scans need an attestation (spec 9.2). By default each scan is preceded by a real `init <target>` in a private working
+// directory; pass { attest: false } to scan unattested. The directory holds the consent record, never the target.
+let consentDir: string | undefined
+async function cli(argv: string[], deps: Deps = {}, o: { attest?: boolean; cwd?: string } = {}): Promise<{ code: number; out: string; err: string }> {
+  const cwd = o.cwd ?? (consentDir ??= await mkdtemp(join(tmpdir(), 'cli-consent-')))
+  const lines = ['yes', 'no']
+  const readLine = async (): Promise<string | null> => lines.shift() ?? null
+  if (argv[0] === 'scan' && o.attest !== false) {
+    const target = argv[1]!
+    await run(['init', target], { out: () => {}, err: () => {} }, { ...deps, cwd, readLine }) // an out-of-scope target stays unattested and the scan refuses it
+  }
   let out = ''
   let err = ''
-  const code = await run(argv, { out: (s) => void (out += s), err: (s) => void (err += s) }, deps)
+  const code = await run(argv, { out: (s) => void (out += s), err: (s) => void (err += s) }, { ...deps, cwd })
   return { code, out, err }
 }
 
@@ -38,6 +49,8 @@ async function tmpTarget(files: Record<string, string>): Promise<string> {
   return d
 }
 afterEach(async () => {
+  if (consentDir) await rm(consentDir, { recursive: true, force: true })
+  consentDir = undefined
   vi.mocked(core.decideExitCode).mockClear()
   await Promise.all(temps.splice(0).map((d) => rm(d, { recursive: true, force: true })))
 })
@@ -252,8 +265,59 @@ describe('built binary', () => {
     expect((r as { stderr: string }).stderr).not.toMatch(/\n\s+at /)
   })
   test('sarif piped from the real process is pure JSON', async () => {
-    const r = await exec('node', [bin, 'scan', express, '--format', 'sarif'])
+    const cwd = await mkdtemp(join(tmpdir(), 'cli-bin-'))
+    temps.push(cwd)
+    await new Promise<void>((res, rej) => {
+      const p = execFile('node', [bin, 'init', express], { cwd }, (e) => (e ? rej(e) : res()))
+      p.stdin?.end('yes\nno\n')
+    })
+    const r = await exec('node', [bin, 'scan', express, '--format', 'sarif'], { cwd })
     expect(JSON.parse(r.stdout).version).toBe('2.1.0')
     expect(r.stderr).toMatch(/no hunter/i)
+  })
+})
+
+describe('attestation is enforced (spec 9.2)', () => {
+  test('an unattested target is refused: exit 2, names the target and the init command, no report', async () => {
+    const r = await cli(['scan', express], {}, { attest: false })
+    expect(r.code).toBe(2)
+    expect(r.out).toBe('')
+    expect(r.err).toContain(`Not attested: ${realpathSync(express)}`)
+    expect(r.err).toMatch(/sentinel init /)
+  })
+  test('the same target is scanned once it has been attested', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'cli-consent-'))
+    temps.push(cwd)
+    expect((await cli(['scan', express], {}, { attest: false, cwd })).code).toBe(2)
+    expect((await cli(['scan', express], {}, { cwd })).code).toBe(0)
+  })
+  test('attesting target A does not authorize target B', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'cli-consent-'))
+    temps.push(cwd)
+    const b = await tmpTarget({ 'x.js': 'console.log(1)\n' })
+    expect((await cli(['scan', express], {}, { cwd })).code).toBe(0) // attests express
+    const r = await cli(['scan', b], {}, { attest: false, cwd })
+    expect(r.code).toBe(2)
+    expect(r.err).toContain(`Not attested: ${realpathSync(b)}`)
+  })
+  test('a consent record that predates a changed AUTHORIZATION.md no longer authorizes a scan', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'cli-consent-'))
+    temps.push(cwd)
+    await cli(['scan', express], {}, { cwd })
+    const changed = join(cwd, 'AUTH.md')
+    await writeFile(changed, 'a different legal text\n')
+    const r = await cli(['scan', express], { authorizationPath: changed }, { attest: false, cwd })
+    expect(r.code).toBe(2)
+    expect(r.err).toMatch(/Not attested/)
+  })
+  test('a corrupt consent record is an error naming the file, not a reset', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'cli-consent-'))
+    temps.push(cwd)
+    await mkdir(join(cwd, '.sentinel'))
+    await writeFile(join(cwd, '.sentinel', 'consent.json'), 'garbage')
+    const r = await cli(['scan', express], {}, { attest: false, cwd })
+    expect(r.code).toBe(2)
+    expect(r.err).toContain('consent.json')
+    expect(await readFile(join(cwd, '.sentinel', 'consent.json'), 'utf8')).toBe('garbage')
   })
 })

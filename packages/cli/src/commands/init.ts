@@ -1,13 +1,10 @@
-import { readFileSync, realpathSync } from 'node:fs'
+import { realpathSync } from 'node:fs'
 import { dirname, isAbsolute, relative, sep } from 'node:path'
 import { createInterface } from 'node:readline'
-import { fileURLToPath } from 'node:url'
-import { SENTINEL_CORE_VERSION, attestationHash, isAttested, readConsent, resolveTarget, writeConsent } from '@sentinel/core'
+import { SENTINEL_CORE_VERSION, attestationHash, isAttested, loadAuthorization, readConsent, resolveTarget, targetId, writeConsent } from '@sentinel/core'
 import type { ConsentRecord } from '@sentinel/core'
 import type { Ctx } from '../context.js'
 import { removeClone } from './scan.js'
-
-const AUTHORIZATION = fileURLToPath(new URL('../../../../AUTHORIZATION.md', import.meta.url)) // same depth from src/ and dist/
 
 const TOOLCHAIN = `
 Toolchain consent
@@ -22,12 +19,12 @@ const inside = (dir: string, p: string): boolean => {
   return rel === '' || (rel !== '..' && !rel.startsWith('..' + sep) && !isAbsolute(rel))
 }
 
-/** Exact match on the literal word: no trimming, no case folding, no abbreviation. Only a trailing CR is dropped. */
-const typed = (line: string | null, word: string): boolean => line !== null && line.replace(/\r$/, '') === word
+/** The user must type the whole word (surrounding whitespace and case do not matter); a single letter or keypress is not accepted. */
+const typed = (line: string | null, word: string): boolean => line !== null && line.trim().toLowerCase() === word
 
 export async function init(target: string | undefined, { io, deps }: Ctx): Promise<number> {
   const cwd = realpathSync(deps.cwd ?? process.cwd()) // the record lives where the user ran init, never in a target
-  const shown = readFileSync(deps.authorizationPath ?? AUTHORIZATION, 'utf8')
+  const shown = loadAuthorization(deps.authorizationPath)
   const hash = attestationHash(shown)
 
   let id: string | null = null
@@ -52,7 +49,7 @@ export async function init(target: string | undefined, { io, deps }: Ctx): Promi
         io.err(`Refused: the working directory is inside the target, and the consent record must never be written into a scanned target. Run init from your own directory.\n`)
         return 2
       }
-      id = t.kind === 'github' ? `github:${t.owner}/${t.repo}`.toLowerCase() : t.root
+      id = targetId(t)
     }
 
     const prior = readConsent(cwd)

@@ -1,7 +1,7 @@
 import { realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname } from 'node:path'
-import { decideExitCode, profileTarget, resolveTarget, selectTechniques, stackForLanguage, toMarkdown, toSarif } from '@sentinel/core'
+import { attestationRefusal, decideExitCode, loadAuthorization, profileTarget, resolveTarget, selectTechniques, stackForLanguage, toMarkdown, toSarif } from '@sentinel/core'
 import type { Finding, Severity } from '@sentinel/core'
 import { CliError, loadRegistry, reason, registryWarning } from '../context.js'
 import type { Ctx } from '../context.js'
@@ -32,6 +32,12 @@ export async function scan(target: string, o: ScanOptions, { io, deps, defaultRe
   // We own the clone (<tmp>/sentinel-XXXX/<repo>): it holds a copy of the user's source, so it goes on success and on failure.
   const cloneDir = t.kind === 'github' ? dirname(t.root) : undefined
   try {
+    // Spec 9.2/9.3: no attestation for this exact target, no scan. The record is read from the user's own directory.
+    const refusal = attestationRefusal(deps.cwd ?? process.cwd(), t, loadAuthorization(deps.authorizationPath))
+    if (refusal) {
+      io.err(`Refused (attestation): ${refusal}\n`)
+      return 2
+    }
     const profile = await profileTarget(t, o.maxFiles !== undefined ? { maxFiles: o.maxFiles } : {}) // t.root as resolved, never the input
     const { index, errors } = await loadRegistry(o.registry ?? defaultRegistry)
 

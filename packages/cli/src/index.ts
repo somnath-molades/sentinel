@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander'
+import { ConsentFileError } from '@sentinel/core'
 import type { Severity } from '@sentinel/core'
 import { packsAudit, packsList } from './commands/packs.js'
 import { init } from './commands/init.js'
@@ -55,7 +56,7 @@ export async function run(argv: string[], io: IO, deps: Deps = {}): Promise<numb
     return code
   } catch (e) {
     if (e instanceof CommanderError) return e.exitCode === 0 ? 0 : 2 // commander already wrote its message to io.err
-    io.err(`${e instanceof CliError ? '' : 'Internal error: '}${reason(e)}\n`) // a reason, never a stack
+    io.err(`${e instanceof CliError || e instanceof ConsentFileError ? '' : 'Internal error: '}${reason(e)}\n`) // a reason, never a stack
     return 2
   }
 }
