@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "built_at": "2026-10-25T04:01:32.689Z",
+  "built_at": "2026-10-25T04:06:15.933Z",
   "techniques": [
     {
       "id": "command-injection-shell-interpolation",

@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildIndex, parseTechnique, STACKS } from '@sentinel/core'
@@ -46,4 +47,13 @@ test('every stack string in the registry belongs to the fixed vocabulary', () =>
       }
     }
   }
+})
+
+test('an unreadable technique file is reported and the rest still index', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'sentinel-idx-'))
+  cpSync(fixture('registry/one-bad-entry'), root, { recursive: true })
+  mkdirSync(join(root, 'packs/fixture-pack/techniques/unreadable.md')) // EISDIR on read
+  const { index, errors } = await buildIndex(root)
+  expect(errors.map((e) => e.file).join()).toContain('unreadable.md')
+  expect(index.techniques.map((t) => t.id)).toEqual(['sql-injection-string-concat'])
 })

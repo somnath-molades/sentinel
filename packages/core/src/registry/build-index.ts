@@ -41,7 +41,14 @@ export async function buildIndex(registryRoot: string): Promise<{ index: Registr
     }
     for (const f of files) {
       const file = join(packPath, 'techniques', f)
-      const r = parseTechnique(await readFile(file, 'utf8'), file)
+      let text: string
+      try {
+        text = await readFile(file, 'utf8')
+      } catch (e) {
+        errors.push({ file, problem: `cannot read technique file: ${reason(e)}` })
+        continue
+      }
+      const r = parseTechnique(text, file)
       if (!r.ok) {
         errors.push(r.error)
         continue

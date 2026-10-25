@@ -14,5 +14,5 @@ export type { TargetProfile, LangStat, Entrypoint, Hotspot, SkipRecord } from '.
 export { buildIndex } from './registry/build-index.js'
 export type { IndexedTechnique, RegistryIndex } from './registry/build-index.js'
 export { selectTechniques } from './registry/router.js'
-export type { TechniqueQuery } from './registry/router.js'
+export type { TechniqueQuery, TechniqueSelection } from './registry/router.js'
 export { STACKS, WILDCARD_STACK } from './registry/vocabulary.js'
