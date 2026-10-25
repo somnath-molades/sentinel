@@ -69,7 +69,7 @@ test('a domain with no technique anywhere says so, differently from one with tec
   const empty = planHunts(nodeOnlyProfile, { ...index, techniques: index.techniques.filter((t) => t.domain !== 'memory-safety') })
   const none = empty.find((x) => x.domain === 'memory-safety')!.reason
   expect(stackMiss).toMatch(/none apply to this target's stacks/)
-  expect(none).toMatch(/no technique in the registry/)
+  expect(none).toMatch(/no technique in the loaded registry/)
   expect(none).not.toEqual(stackMiss)
 })
 

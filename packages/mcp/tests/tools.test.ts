@@ -124,7 +124,7 @@ describe('plan_hunts', () => {
       const out = json(await call(c, 'plan_hunts', {}))
       const deps = out.assignments.find((a: { domain: string }) => a.domain === 'dependencies')
       expect(deps.techniques).toEqual([])
-      expect(deps.reason).toMatch(/no technique in the registry/)
+      expect(deps.reason).toMatch(/no technique in the loaded registry/)
       expect(out.registry_warning).toMatch(/failed to load.*vulnerable-dependency-version/)
     } finally {
       await rm(reg, { recursive: true, force: true })

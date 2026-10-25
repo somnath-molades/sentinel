@@ -55,7 +55,9 @@ export function planHunts(profile: TargetProfile, index: RegistryIndex): HuntAss
     const anywhere = selectTechniques(index, { domain }).techniques.length
     const reason =
       anywhere === 0
-        ? `no technique in the registry covers the ${domain} domain`
+        // "loaded" is load-bearing: an entry that failed to parse is absent from the index, so claiming
+        // the registry has none would be false. The caller surfaces registry_warning alongside this.
+        ? `no technique in the loaded registry covers the ${domain} domain`
         : `${anywhere} technique(s) exist for ${domain} but none apply to this target's stacks (${known.size > 0 ? [...known].join(', ') : 'no recognised language'})`
     return { domain, techniques, hotspot_paths, coverage, reason }
   })
