@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "built_at": "2026-10-25T04:06:15.933Z",
+  "techniques": [
+    {
+      "id": "command-injection-shell-interpolation",
+      "vuln_classes": [
+        "command-injection"
+      ],
+      "depth_tier": "L1",
+      "stacks": [
+        "node",
+        "python",
+        "php",
+        "go"
+      ],
+      "pack": "vbsec",
+      "path": "packs/vbsec/techniques/command-injection-shell-interpolation.md"
+    },
+    {
+      "id": "cross-file-taint-source-to-sink",
+      "vuln_classes": [
+        "taint-flow",
+        "injection"
+      ],
+      "depth_tier": "L2",
+      "stacks": [
+        "node",
+        "python",
+        "go",
+        "generic"
+      ],
+      "pack": "defending-code",
+      "path": "packs/defending-code/techniques/cross-file-taint-source-to-sink.md"
+    },
+    {
+      "id": "debug-mode-verbose-errors",
+      "vuln_classes": [
+        "information-disclosure",
+        "insecure-configuration"
+      ],
+      "depth_tier": "L0",
+      "stacks": [
+        "node",
+        "python",
+        "php",
+        "generic"
+      ],
+      "pack": "vbsec",
+      "path": "packs/vbsec/techniques/debug-mode-verbose-errors.md"
+    },
+    {
+      "id": "entrypoint-reachability-under-auth-state",
+      "vuln_classes": [
+        "reachability",
+        "broken-access-control"
+      ],
+      "depth_tier": "L2",
+      "stacks": [
+        "node",
+        "python",
+        "go",
+        "generic"
+      ],
+      "pack": "defending-code",
+      "path": "packs/defending-code/techniques/entrypoint-reachability-under-auth-state.md"
+    },
+    {
+      "id": "hardcoded-secret-in-source",
+      "vuln_classes": [
+        "secret-exposure"
+      ],
+      "depth_tier": "L0",
+      "stacks": [
+        "node",
+        "python",
+        "php",
+        "go",
+        "generic"
+      ],
+      "pack": "vbsec",
+      "path": "packs/vbsec/techniques/hardcoded-secret-in-source.md"
+    },
+    {
+      "id": "over-permissive-agent-tool-allowlist",
+      "vuln_classes": [
+        "insecure-configuration",
+        "excessive-privilege"
+      ],
+      "depth_tier": "L0",
+      "stacks": [
+        "agent-config",
+        "ci",
+        "generic"
+      ],
+      "pack": "defending-code",
+      "path": "packs/defending-code/techniques/over-permissive-agent-tool-allowlist.md"
+    },
+    {
+      "id": "path-traversal-unvalidated-file-path",
+      "vuln_classes": [
+        "path-traversal"
+      ],
+      "depth_tier": "L1",
+      "stacks": [
+        "node",
+        "python",
+        "php",
+        "go"
+      ],
+      "pack": "vbsec",
+      "path": "packs/vbsec/techniques/path-traversal-unvalidated-file-path.md"
+    },
+    {
+      "id": "permissive-cors-with-credentials",
+      "vuln_classes": [
+        "cors-misconfiguration",
+        "insecure-configuration"
+      ],
+      "depth_tier": "L0",
+      "stacks": [
+        "node",
+        "python",
+        "php",
+        "generic"
+      ],
+      "pack": "vbsec",
+      "path": "packs/vbsec/techniques/permissive-cors-with-credentials.md"
+    },
+    {
+      "id": "reflected-xss-unescaped-output",
+      "vuln_classes": [
+        "xss"
+      ],
+      "depth_tier": "L1",
+      "stacks": [
+        "node",
+        "python",
+        "php",
+        "generic"
+      ],
+      "pack": "vbsec",
+      "path": "packs/vbsec/techniques/reflected-xss-unescaped-output.md"
+    },
+    {
+      "id": "sql-injection-built-query-string",
+      "vuln_classes": [
+        "sql-injection"
+      ],
+      "depth_tier": "L1",
+      "stacks": [
+        "node",
+        "python",
+        "php",
+        "go"
+      ],
+      "pack": "vbsec",
+      "path": "packs/vbsec/techniques/sql-injection-built-query-string.md"
+    },
+    {
+      "id": "unbounded-copy-into-fixed-buffer",
+      "vuln_classes": [
+        "memory-safety",
+        "buffer-overflow"
+      ],
+      "depth_tier": "L1",
+      "stacks": [
+        "c",
+        "cpp"
+      ],
+      "pack": "defending-code",
+      "path": "packs/defending-code/techniques/unbounded-copy-into-fixed-buffer.md"
+    },
+    {
+      "id": "unsafe-deserialization-untrusted-payload",
+      "vuln_classes": [
+        "unsafe-deserialization"
+      ],
+      "depth_tier": "L1",
+      "stacks": [
+        "python",
+        "php",
+        "node",
+        "java"
+      ],
+      "pack": "vbsec",
+      "path": "packs/vbsec/techniques/unsafe-deserialization-untrusted-payload.md"
+    },
+    {
+      "id": "vulnerable-dependency-version",
+      "vuln_classes": [
+        "vulnerable-dependency",
+        "supply-chain"
+      ],
+      "depth_tier": "L0",
+      "stacks": [
+        "node",
+        "python",
+        "php",
+        "go",
+        "generic"
+      ],
+      "pack": "vbsec",
+      "path": "packs/vbsec/techniques/vulnerable-dependency-version.md"
+    }
+  ]
+}

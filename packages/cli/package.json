@@ -1,0 +1,15 @@
+{
+  "name": "@sentinel/cli",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=20.0.0" },
+  "bin": { "sentinel": "dist/bin.js" },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@sentinel/core": "workspace:*",
+    "commander": "14.0.3",
+    "yaml": "2.9.1"
+  }
+}

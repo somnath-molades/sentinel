@@ -1,0 +1,29 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Build first: lint typechecks across packages and needs core's emitted
+      # declarations, and the tests import @sentinel/core from its built output.
+      - run: pnpm build
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm check:no-remote-install
+      # The project attests for its own repository: the maintainers own this code, and `init` takes the same typed
+      # attestation a user gives, piped here because CI has no keyboard. Enforcement is unchanged; nothing is bypassed.
+      # `init` refuses a working directory inside the target, so the consent record lives in RUNNER_TEMP.
+      # No --fail-on: this build has no hunter agents, so a threshold gate cannot be evaluated (exit 2). This step
+      # asserts the pipeline runs clean (exit 0); it becomes a real finding gate in Phase 2.
+      - name: Self-scan
+        working-directory: ${{ runner.temp }}
+        run: |
+          printf 'yes\nno\n' | node "$GITHUB_WORKSPACE/packages/cli/dist/bin.js" init "$GITHUB_WORKSPACE"
+          node "$GITHUB_WORKSPACE/packages/cli/dist/bin.js" scan "$GITHUB_WORKSPACE"

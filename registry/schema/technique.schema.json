@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "vuln_classes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "cwe": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "depth_tier": {
+      "type": "string",
+      "enum": [
+        "L0",
+        "L1",
+        "L2",
+        "L3",
+        "L4",
+        "L5"
+      ]
+    },
+    "stacks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "fix_patterns": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "stack": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "mechanical",
+              "guided",
+              "design-change"
+            ]
+          },
+          "guidance": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "stack",
+          "tier",
+          "guidance"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "pack": {
+          "type": "string",
+          "minLength": 1
+        },
+        "upstream_commit": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pack"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "id",
+    "vuln_classes",
+    "depth_tier",
+    "stacks",
+    "fix_patterns",
+    "references",
+    "provenance"
+  ],
+  "additionalProperties": false
+}

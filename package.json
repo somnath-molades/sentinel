@@ -1,0 +1,22 @@
+{
+  "name": "sentinel",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@9.15.9",
+  "engines": { "node": ">=20.0.0" },
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc -b packages/core packages/mcp packages/cli",
+    "gen:index": "tsc -b packages/core && node scripts/gen-index.mjs",
+    "gen:schema": "tsc -b packages/core && node scripts/gen-schema.mjs",
+    "lint": "tsc -p tsconfig.typecheck.json",
+    "check:no-remote-install": "sh scripts/check-no-remote-install.sh"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "ajv": "8.20.0",
+    "typescript": "5.9.3",
+    "vitest": "2.1.9"
+  }
+}
