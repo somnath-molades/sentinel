@@ -11,8 +11,10 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
+      # Build first: lint typechecks across packages and needs core's emitted
+      # declarations, and the tests import @sentinel/core from its built output.
       - run: pnpm build
+      - run: pnpm lint
       - run: pnpm test
       - run: pnpm check:no-remote-install
       # The project attests for its own repository: the maintainers own this code, and `init` takes the same typed
