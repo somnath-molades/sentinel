@@ -20,7 +20,7 @@ Ingestion modes follow spec §5.3:
 
 ## Audit table
 
-| # | Source (as named by owner) | Repository | Licence as read | Read from | Commit audited | Coverage areas | Ingestion mode |
+| # | Source (as named by owner) | Repository | Licence as read | Read from | Commit audited | Coverage areas (advisory — see note) | Ingestion mode |
 |---|---|---|---|---|---|---|---|
 | 1 | Claude Cybersecurity — Agrici Daniel | https://github.com/AgriciDaniel/pya | MIT | `LICENSE` (`MIT License` / `Copyright (c) 2026 AgriciDaniel`) | `416c17fa09a234a1a34709d31b335d30196b9899` | Security-audit plugin, 9 specialist agents, dated threat feed | `vendored` (not used in this task) |
 | 2 | VBsec — Tanviet12 | https://github.com/tanviet12/vbsec | MIT | `LICENSE` (`MIT License` / `Copyright (c) 2026 Bùi Tấn Việt`) | `1b86c27936d350d1a9ca67f044341262d4219d4e` | 22 vulnerability rule files: secrets, injection, XSS, IDOR, access control, crypto, dependencies | `vendored` — **normalized as pack `vbsec`** |
@@ -36,6 +36,24 @@ Ingestion modes follow spec §5.3:
 
 `vendored (not used in this task)` means: the licence permits vendoring and the mode is
 recorded, but no content has been ingested yet. Only sources 2 and 8 were normalized.
+
+**The columns are not equally firm, and the difference matters.** "Licence as read",
+"Read from", "Commit audited" and "Ingestion mode" are evidence: every licence was
+determined by fetching and reading the repository's own `LICENSE` file, and every commit
+was resolved from the API at audit time. Treat those as established.
+
+"Coverage areas" is **advisory**. For sources 2 and 8 it is derived from reading the
+repository's git tree at the pinned commit and reading representative content files, so
+it is as firm as the rest of the row. For sources 1, 5, 6, 7, 9, 10 and 11 it is a
+paraphrase of the repository's own GitHub description and README framing; **their trees
+were not read.** Sources 3 and 4 have no coverage value because they were not located.
+
+This is a deliberate limit, not an oversight: the task's requirement was licence and
+commit accuracy plus two ingested packs, not a depth characterisation of all eleven. But
+it means a later phase must not plan ingestion against this column as though it were the
+licence column. Read the tree when the pack is actually ingested, and correct the row
+then. Normalizer requirement 21 already forbids ingesting a source without a matching
+audit row; the coverage value in that row is a starting hypothesis, not a finding.
 
 ### Notes on individual determinations
 
@@ -114,9 +132,10 @@ original wording; the correction is noted where it applies.
   `docs/`. So it is not "a tool with no markdown"; it is a hybrid.
   What remains true is the decomposition: no file corresponds to a vulnerability
   class. A vulnerability-class taxonomy does exist, but as a flat inline list inside
-  one prompt block of `.claude/skills/vuln-scan/SKILL.md`, grouped by triage value
-  (memory safety, injection and code execution, auth/crypto/data) and accompanied by
-  an explicit do-not-report list of known false positives. Memory-safety and
+  one prompt block of `.claude/skills/vuln-scan/SKILL.md`, grouped by category
+  (memory safety; injection and code execution; auth, crypto and data) with a
+  HIGH VALUE or LOW VALUE label applied across those groups, and accompanied by an
+  explicit do-not-report list of known false positives. Memory-safety and
   reachability oriented; its unit of knowledge is a *workflow phase*, with classes as
   an inline checklist inside one of them.
 
