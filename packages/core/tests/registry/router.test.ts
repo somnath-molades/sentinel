@@ -103,8 +103,13 @@ test('domain and stack compose', () => {
   const r = selectTechniques(index, { domain: 'memory-safety', stack: 'c' })
   expect(r.techniques.map((t) => t.id)).toContain('unbounded-copy-into-fixed-buffer')
   expect(r.match).toBe('exact')
+  expect(r.techniques.every((t) => t.domain === 'memory-safety')).toBe(true)
+  // Negative half: the stack filter alone would keep this entry, so only a live domain filter drops it.
+  const wrongDomain = selectTechniques(index, { domain: 'injection', stack: 'c' }).techniques.map((t) => t.id)
+  expect(wrongDomain).not.toContain('unbounded-copy-into-fixed-buffer')
 })
 
+// Chosen because no crypto entry exists yet: re-point this pair when one is added, or it fails like a router bug.
 test('a domain with no entries for the queried stack reports none', () => {
   expect(selectTechniques(index, { domain: 'crypto', stack: 'node' }).match).toBe('none')
 })
