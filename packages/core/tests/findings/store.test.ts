@@ -267,4 +267,88 @@ describe('severity in the store', () => {
     expect(f.severity_disputed).toBe(false)
     expect(f.severity_by_agent).toEqual([])
   })
+  test('a factorless verdict from the same agent leaves its earlier rating standing', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('v1', HIGH))
+    s.recordVerdict(id, v('confirmed', 'V1'))
+    const f = s.get(id)!
+    expect(f.severity!.band).toBe('high')
+    expect(f.severity_by_agent).toHaveLength(1)
+  })
+
+  describe('a dropped finding carries no severity', () => {
+    const expectBare = (f: Finding): void => {
+      expect(f.status).toBe('dropped')
+      expect(f.severity).toBeUndefined()
+      expect(f.severity_disputed).toBe(false)
+      expect(f.severity_by_agent).toEqual([])
+    }
+    test('same agent confirms with factors, then disproves', () => {
+      const { s, id } = setup()
+      s.recordVerdict(id, verdict('v1', HIGH))
+      s.recordVerdict(id, v('disproved', 'v1'))
+      expectBare(s.get(id)!)
+    })
+    test('same agent disproves, then confirms with factors', () => {
+      const { s, id } = setup()
+      s.recordVerdict(id, v('disproved', 'v1'))
+      s.recordVerdict(id, verdict('v1', HIGH))
+      expectBare(s.get(id)!)
+    })
+    test('another agent confirms with factors and a second agent disproves', () => {
+      const { s, id } = setup()
+      s.recordVerdict(id, verdict('v1', HIGH))
+      s.recordVerdict(id, verdict('v3', LOW))
+      s.recordVerdict(id, v('disproved', 'v2'))
+      expectBare(s.get(id)!)
+    })
+  })
+
+  describe('factors are validated at the store boundary', () => {
+    const bad = (factors: unknown) => ({ agent: 'v1', outcome: 'confirmed' as const, reasoning: 'r', factors: factors as SeverityFactors })
+    test.each([
+      ['negative', { ...HIGH, exploitability: -1 }],
+      ['above 3', { ...HIGH, blast_radius: 4 }],
+      ['non-integer', { ...HIGH, reachability: 1.5 }],
+      ['NaN', { ...HIGH, exploitability: NaN }],
+      ['Infinity', { ...HIGH, data_sensitivity: Infinity }],
+      ['a string', { ...HIGH, exploitability: '3' }],
+      ['a missing key', { exploitability: 3, reachability: 3, blast_radius: 3 }],
+      ['an empty object', {}],
+      ['a non-object', 'high'],
+      ['null', null],
+    ])('rejects %s and records no verdict', (_name, factors) => {
+      const { s, id } = setup()
+      expect(() => s.recordVerdict(id, bad(factors))).toThrow(/factors/)
+      const f = s.get(id)!
+      expect(f.verdicts).toEqual([])
+      expect(f.status).toBe('candidate')
+      expect(f.severity).toBeUndefined()
+    })
+  })
+
+  describe('the store keeps its own copies', () => {
+    test('mutating the caller factors after recording does not change the store', () => {
+      const { s, id } = setup()
+      const factors: SeverityFactors = { ...HIGH }
+      s.recordVerdict(id, verdict('v1', factors))
+      factors.exploitability = 0
+      factors.reachability = 0
+      const f = s.get(id)!
+      expect(f.severity!.band).toBe('high')
+      expect(f.verdicts[0]!.factors).toEqual(HIGH)
+    })
+    test('mutating returned factors, severity_by_agent or severity does not change the store', () => {
+      const { s, id } = setup()
+      const returned = s.recordVerdict(id, verdict('v1', HIGH))
+      returned.verdicts[0]!.factors!.exploitability = 0
+      returned.severity_by_agent[0]!.severity.band = 'info'
+      returned.severity_by_agent.push({ agent: 'forged', severity: returned.severity! })
+      returned.severity!.band = 'info'
+      const f = s.get(id)!
+      expect(f.verdicts[0]!.factors).toEqual(HIGH)
+      expect(f.severity_by_agent.map((x) => [x.agent, x.severity.band])).toEqual([['v1', 'high']])
+      expect(f.severity!.band).toBe('high')
+    })
+  })
 })
