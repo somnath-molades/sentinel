@@ -10,6 +10,8 @@ const fixture = (name: string): string => fileURLToPath(new URL(`../../../../tes
 test('header files are recognised, not counted as unexamined', async () => {
   const p = await profileTarget({ kind: 'local', root: fixture('c-memory-safety') })
   expect(p.skipped.some((s) => s.path.endsWith('.h'))).toBe(false)
+  // An unrecognised .h is never in `skipped`; it lands in files with no language. greet.c + greet.h must both count as c.
+  expect(p.languages.find((l) => l.language === 'c')?.files).toBe(2)
 })
 
 test('profiles an express app', async () => {

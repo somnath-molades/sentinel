@@ -1,4 +1,5 @@
-import { DOMAINS, STACKS, profileTarget, stackForLanguage } from '@sentinel/core'
+import { DOMAINS, STACKS, buildIndex, coverageGap, profileTarget, selectTechniques, stackForLanguage } from '@sentinel/core'
+import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const fixture = (name: string): string => fileURLToPath(new URL(`../../../../tests/fixtures/targets/${name}`, import.meta.url))
@@ -14,6 +15,15 @@ test('a C project yields a c stack, and cpp resolves', async () => {
   expect(p.languages.map((l) => l.language)).toContain('c')
   expect(stackForLanguage('c')).toBe('c')
   expect(stackForLanguage('cpp')).toBe('cpp')
+})
+
+// Spec 3.4/8.1 join: the stack DERIVED from a real C tree, not a literal, must reach the memory-safety technique.
+test('the derived stack of a C tree selects the memory-safety technique', async () => {
+  const { index } = await buildIndex(resolve(dirname(fileURLToPath(import.meta.url)), '../../../../registry'))
+  const stacks = coverageGap(await profileTarget({ kind: 'local', root: fixture('c-memory-safety') })).stacks
+  expect(stacks).toEqual(['c'])
+  const ids = stacks.flatMap((stack) => selectTechniques(index, { domain: 'memory-safety', stack }).techniques.map((t) => t.id))
+  expect(ids).toContain('unbounded-copy-into-fixed-buffer')
 })
 
 // M2: the lookup is an object index, so a prototype member must not come back as a stack.
