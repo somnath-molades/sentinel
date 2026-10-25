@@ -85,3 +85,26 @@ test('limit keeps the top-ranked results in rank order', () => {
 test('a non-positive or non-integer limit is rejected, not silently truncated', () => {
   for (const limit of [0, -1, 1.5, NaN]) expect(() => selectTechniques(index, { limit })).toThrow(RangeError)
 })
+
+test('a domain query returns only that domain', () => {
+  const r = selectTechniques(index, { domain: 'injection' })
+  expect(r.techniques.length).toBeGreaterThan(0)
+  expect(r.techniques.every((t) => t.domain === 'injection')).toBe(true)
+})
+
+test('a domain query reaches the cross-cutting entry a class query cannot', () => {
+  const byDomain = selectTechniques(index, { domain: 'injection' }).techniques.map((t) => t.id)
+  const byClass = selectTechniques(index, { vuln_class: 'sql-injection' }).techniques.map((t) => t.id)
+  expect(byDomain).toContain('cross-file-taint-source-to-sink')
+  expect(byClass).not.toContain('cross-file-taint-source-to-sink') // spec 7.3: documented, not fixed
+})
+
+test('domain and stack compose', () => {
+  const r = selectTechniques(index, { domain: 'memory-safety', stack: 'c' })
+  expect(r.techniques.map((t) => t.id)).toContain('unbounded-copy-into-fixed-buffer')
+  expect(r.match).toBe('exact')
+})
+
+test('a domain with no entries for the queried stack reports none', () => {
+  expect(selectTechniques(index, { domain: 'crypto', stack: 'node' }).match).toBe('none')
+})
