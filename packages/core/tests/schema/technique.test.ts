@@ -74,3 +74,13 @@ test('malformed YAML reports the file, does not throw', () => {
   expect(r.ok).toBe(false)
   if (!r.ok) expect(r.error.file).toBe('bad-yaml.md')
 })
+
+test('an entry with no domain is rejected', () => {
+  expect(fail('missing-domain.md', read('missing-domain.md')).problem).toMatch(/domain/)
+})
+
+test('an unknown domain is rejected and the message names the value and the allowed set', () => {
+  const { problem } = fail('unknown-domain.md', read('unknown-domain.md'))
+  expect(problem).toContain('web-security')
+  expect(problem).toContain('memory-safety')
+})

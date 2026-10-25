@@ -130,3 +130,19 @@ test('every pack has an audit row pinning the same commit', () => {
     if (p.upstream_commit !== undefined) expect(audit).toContain(p.upstream_commit)
   }
 })
+
+test('every entry declares a domain in the vocabulary', () => {
+  for (const t of allTechniques()) expect(DOMAINS).toContain(t.domain)
+})
+
+test('every entry routes to exactly one domain assignment', () => {
+  // The silent-miss guard: an entry that routes nowhere fails here rather than disappearing.
+  const byDomain = new Map<string, number>()
+  for (const t of allTechniques()) byDomain.set(t.domain, (byDomain.get(t.domain) ?? 0) + 1)
+  expect([...byDomain.values()].reduce((a, b) => a + b, 0)).toBe(allTechniques().length)
+})
+
+test('the injection domain holds the cross-cutting taint entry', () => {
+  const ids = allTechniques().filter((t) => t.domain === 'injection').map((t) => t.id)
+  expect(ids).toContain('cross-file-taint-source-to-sink')
+})

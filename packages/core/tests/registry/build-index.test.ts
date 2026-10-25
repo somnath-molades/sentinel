@@ -64,3 +64,11 @@ test('an unreadable technique file is reported and the rest still index', async 
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('buildIndex names the entry file and the problem for a bad domain', async () => {
+  const { index, errors } = await buildIndex(fixture('registry/bad-domain'))
+  expect(errors).toHaveLength(1)
+  expect(errors[0]?.file).toContain('unknown-domain.md')
+  expect(errors[0]?.problem).toMatch(/domain/)
+  expect(index.techniques.map((x) => x.id)).toEqual(['sql-injection-string-concat'])
+})
