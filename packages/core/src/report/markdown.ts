@@ -37,22 +37,28 @@ const EXPOSURE = ['not reachable from outside', 'hard to reach from outside', 'r
 const SPREAD = ['affects one small thing', 'affects one feature', 'affects much of the product', 'affects the whole product']
 const DATA = ['no sensitive data involved', 'low-sensitivity data', 'private user or business data', 'secrets, credentials or payment data']
 
-function findingBlock(f: Finding, label: string): string {
+function findingBlock(f: Finding, label: string, verified: boolean): string {
   const where = `${inline(f.file)} line ${f.line}`
   const out: string[] = [`#### ${label}${inline(f.technique_id)} in ${where}`, '']
   const s = f.severity
   out.push('**What this means**', '')
-  out.push(`Sentinel found a weakness of type ${inline(f.technique_id)} in ${inline(f.file)}, near line ${f.line}.`)
+  out.push(
+    verified
+      ? `Sentinel found a weakness of type ${inline(f.technique_id)} in ${inline(f.file)}, near line ${f.line}.`
+      : `Possible weakness, not verified: type ${inline(f.technique_id)} in ${inline(f.file)}, near line ${f.line}. It may turn out not to be a real problem.`,
+  )
   out.push(`How the risky code is reached: ${oneLine(f.reachability)}.`)
   if (s) {
     const fa = s.factors
-    out.push(`Rated **${s.band}**: it is ${EASE[fa.exploitability]}, ${EXPOSURE[fa.reachability]}, ${SPREAD[fa.blast_radius]}, and involves ${DATA[fa.data_sensitivity]}.`)
+    out.push(`${verified ? 'Rated' : 'Tentative rating, only if it is real:'} **${s.band}**: it is ${EASE[fa.exploitability]}, ${EXPOSURE[fa.reachability]}, ${SPREAD[fa.blast_radius]}, and involves ${DATA[fa.data_sensitivity]}.`)
   } else {
     out.push('This finding has not been given a severity rating.')
   }
+  out.push('What an attacker could do with this: an explanation for this type of weakness is not available in this version of Sentinel yet, so none is given here. That is a gap in the report, not a sign the risk is low.')
   out.push('', '**Technical detail**', '')
   out.push(`- Technique: ${inline(f.technique_id)} (depth tier ${f.depth_tier})`)
   out.push(`- Location: ${where}`)
+  out.push('- Standards references (CWE and others): not available in this version of Sentinel yet. Nothing listed here does not mean none apply.')
   if (s) {
     const fa = s.factors
     out.push(`- Severity: ${s.band}, score ${s.score} (exploitability ${fa.exploitability}/3, reachability ${fa.reachability}/3, blast radius ${fa.blast_radius}/3, data sensitivity ${fa.data_sensitivity}/3)`)
@@ -89,7 +95,10 @@ export function toMarkdown(findings: Finding[], profile: TargetProfile, opts: { 
   if (unverified.length) out.push(`- Not yet verified: ${unverified.length}`)
   out.push(`- ${dropped} disproved by verification (not listed)`)
   const gaps = profile.skipped.length
-  out.push(`- Coverage: ${profile.file_count} files scanned, ${gaps} not scanned${profile.truncated ? ', scan truncated' : ''}. See Coverage below.`, '')
+  out.push(`- Coverage: ${profile.file_count} files scanned, ${gaps} not scanned${profile.truncated ? ', scan truncated' : ''}. See Coverage below.`)
+  const links = profile.skipped.filter((x) => x.reason === 'symlink').length
+  if (links) out.push(`- **${links} symlink${links === 1 ? '' : 's'} (shortcuts to places outside the scan) were NOT followed.** Whatever they point to was not examined and may be a large share of your code.`)
+  out.push('')
 
   if (opts.mode === 'pure-reasoning') {
     out.push(
@@ -104,18 +113,18 @@ export function toMarkdown(findings: Finding[], profile: TargetProfile, opts: { 
     const group = confirmed.filter((f) => (f.severity?.band ?? null) === b)
     if (!group.length) continue
     out.push(`### ${b ? cap(b) : 'Unrated'}`, '')
-    for (const f of group) out.push(findingBlock(f, ''))
+    for (const f of group) out.push(findingBlock(f, '', true))
   }
 
   if (review.length) {
     out.push('## Needs review', '')
     out.push('These are NOT confirmed. Verification could not settle them either way, so treat each as a lead for a person to check, not as a proven problem.', '')
-    for (const f of review.sort(byRank)) out.push(findingBlock(f, '[NOT CONFIRMED] '))
+    for (const f of review.sort(byRank)) out.push(findingBlock(f, '[NOT CONFIRMED] ', false))
   }
   if (unverified.length) {
     out.push('## Not yet verified', '')
     out.push('These were reported but never checked by verification. They are NOT confirmed.', '')
-    for (const f of unverified.sort(byRank)) out.push(findingBlock(f, '[UNVERIFIED] '))
+    for (const f of unverified.sort(byRank)) out.push(findingBlock(f, '[UNVERIFIED] ', false))
   }
 
   out.push('## Coverage', '')

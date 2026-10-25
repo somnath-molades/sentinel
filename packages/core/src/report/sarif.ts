@@ -20,18 +20,22 @@ export type SarifLog = {
     tool: { driver: { name: 'Sentinel'; rules: { id: string; name: string; shortDescription: { text: string } }[] } }
     results: SarifResult[]
     // Coverage rides along so a consumer of the log alone cannot mistake "no results" for "all clear".
-    properties: { coverage: { files_scanned: number; truncated: boolean; skipped: Record<string, number> } }
+    properties: { mode: 'full' | 'pure-reasoning'; not_checked: string[]; coverage: { files_scanned: number; truncated: boolean; skipped: Record<string, number> } }
   }[]
 }
 
 const LEVEL: Record<Severity['band'], SarifResult['level']> = { critical: 'error', high: 'error', medium: 'warning', low: 'note', info: 'note' }
 
+// A SARIF uri is a URI reference: backslashes become '/', and each segment is percent-encoded
+// so spaces, '#', '?' and '%' survive (Code Scanning drops results with a bad uri silently).
+const toUri = (file: string): string => file.replaceAll('\\', '/').split('/').map(encodeURIComponent).join('/')
+
 const loc = (file: string, line: number, text?: string): SarifLocation => ({
-  physicalLocation: { artifactLocation: { uri: file }, region: { startLine: Math.max(1, line) } },
+  physicalLocation: { artifactLocation: { uri: toUri(file) }, region: { startLine: Math.max(1, line) } },
   ...(text ? { message: { text } } : {}),
 })
 
-export function toSarif(findings: Finding[], profile: TargetProfile): SarifLog {
+export function toSarif(findings: Finding[], profile: TargetProfile, opts: { mode: 'full' | 'pure-reasoning' } = { mode: 'full' }): SarifLog {
   // Only verified findings: needs-review and candidates are unverified claims, dropped ones were disproved.
   const confirmed = findings.filter((f) => f.status === 'confirmed')
   const skipped: Record<string, number> = {}
@@ -55,7 +59,12 @@ export function toSarif(findings: Finding[], profile: TargetProfile): SarifLog {
           partialFingerprints: { sentinelFindingId: f.id },
           properties: { ...(f.severity ? { severity: f.severity } : {}), depth_tier: f.depth_tier },
         })),
-        properties: { coverage: { files_scanned: profile.file_count, truncated: profile.truncated, skipped } },
+        properties: {
+          mode: opts.mode,
+          // An empty results list from a pure-reasoning run must not read as all clear to a SARIF-only consumer.
+          not_checked: opts.mode === 'pure-reasoning' ? ['dependency CVE detection', 'entropy-based secret scanning'] : [],
+          coverage: { files_scanned: profile.file_count, truncated: profile.truncated, skipped },
+        },
       },
     ],
   }
