@@ -89,6 +89,42 @@ describe('reporting agent identity', () => {
     expect(s.list()).toHaveLength(1)
     expect(s.get(f.id)!.reporting_agents.sort()).toEqual(['hunter-1', 'hunter-2'])
     expect(() => s.recordVerdict(f.id, v('confirmed', 'hunter-2'))).toThrow(/reporting agent/)
+    expect(() => s.recordVerdict(f.id, v('confirmed', 'hunter-1'))).toThrow(/reporting agent/)
+    expect(s.recordVerdict(f.id, v('confirmed', 'verifier-1')).status).toBe('confirmed')
+  })
+  test('mutating reporting_agents on a returned finding does not affect the store', () => {
+    const s = new FindingsStore()
+    const f = s.add(base, { ...meta, reporting_agent: 'hunter-1' })
+    f.reporting_agents.length = 0
+    s.get(f.id)!.reporting_agents.push('x')
+    expect(s.get(f.id)!.reporting_agents).toEqual(['hunter-1'])
+    expect(() => s.recordVerdict(f.id, v('confirmed', 'hunter-1'))).toThrow(/reporting agent/)
+  })
+  test.each([
+    ['case', 'Hunter-1'],
+    ['surrounding whitespace', '\t hunter-1 '],
+    ['NFD vs NFC', 'café'],
+  ])('agent ids are canonicalised: %s cannot evade the gate', (_n, variant) => {
+    const s = new FindingsStore()
+    const stored = variant === 'café' ? 'café' : 'hunter-1'
+    const f = s.add(base, { ...meta, reporting_agent: stored })
+    expect(() => s.recordVerdict(f.id, v('confirmed', variant))).toThrow(/reporting agent/)
+  })
+  test('the canonical form is what gets stored', () => {
+    const s = new FindingsStore()
+    expect(s.add(base, { ...meta, reporting_agent: ' Hunter-1 ' }).reporting_agents).toEqual(['hunter-1'])
+  })
+  test('a verifier cannot later become a reporter of the finding it verified', () => {
+    const s = new FindingsStore()
+    const f = s.add(base, { ...meta, reporting_agent: 'hunter-1' })
+    s.recordVerdict(f.id, v('confirmed', 'verifier-1'))
+    expect(() => s.add(base, { ...meta, reporting_agent: ' Verifier-1' })).toThrow(/verdict/)
+    expect(s.get(f.id)!.reporting_agents).toEqual(['hunter-1'])
+  })
+  test('a self-verdict is refused before the outcome is validated', () => {
+    const s = new FindingsStore()
+    const f = s.add(base, { ...meta, reporting_agent: 'hunter-1' })
+    expect(() => s.recordVerdict(f.id, { agent: 'hunter-1', outcome: 'bogus' as 'confirmed', reasoning: 'r' })).toThrow(/reporting agent/)
   })
   test('padding the agent id does not evade the gate', () => {
     const s = new FindingsStore()

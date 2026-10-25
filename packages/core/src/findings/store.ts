@@ -27,6 +27,9 @@ function statusFrom(verdicts: Verdict[]): Finding['status'] {
   return 'candidate'
 }
 
+// One definition for storing and checking agent ids, so spelling variants of one id are one agent.
+const canonicalAgentId = (id: string): string => id.normalize('NFKC').trim().toLowerCase()
+
 const OUTCOMES: readonly string[] = ['confirmed', 'disproved', 'ambiguous']
 
 // Callers are untrusted agents: the store keeps its own records and only hands out deep copies,
@@ -37,11 +40,14 @@ export class FindingsStore {
   add(input: FindingInput, meta: AddMeta): Finding {
     if (!meta.reachability.trim()) throw new Error('reachability must be a non-empty reason')
     if (!input.snippet.trim()) throw new Error('snippet must not be empty')
-    const reporter = meta.reporting_agent.trim()
+    const reporter = canonicalAgentId(meta.reporting_agent)
     if (!reporter) throw new Error('reporting_agent must be a non-empty agent id')
     const id = fingerprint(input)
     const existing = this.findings.get(id)
     if (existing) {
+      if (existing.verdicts.some((x) => canonicalAgentId(x.agent) === reporter)) {
+        throw new Error(`agent ${reporter} already holds a verdict on this finding and cannot report it`)
+      }
       if (!existing.reporting_agents.includes(reporter)) existing.reporting_agents.push(reporter)
       const seen = (l: { line: number; reachability: string }): boolean =>
         l.line === input.line && l.reachability === meta.reachability
@@ -72,7 +78,7 @@ export class FindingsStore {
     const f = this.findings.get(id)
     if (!f) throw new Error(`unknown finding: ${id}`)
     // Checked first so a self-verdict is refused whatever it claims; trimmed so padding cannot evade it.
-    if (f.reporting_agents.includes(v.agent.trim())) throw new Error(`reporting agent cannot verify its own finding: ${v.agent}`)
+    if (f.reporting_agents.includes(canonicalAgentId(v.agent))) throw new Error(`reporting agent cannot verify its own finding: ${v.agent}`)
     if (!OUTCOMES.includes(v.outcome)) throw new Error(`unknown verdict outcome: ${String(v.outcome)}`)
     f.verdicts.push({ agent: v.agent, outcome: v.outcome, reasoning: v.reasoning })
     f.status = statusFrom(f.verdicts)

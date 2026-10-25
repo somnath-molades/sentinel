@@ -80,6 +80,9 @@ const findingSchema = z.object({
   reachability: z.string().refine(nonBlank, 'reachability must be a non-empty reason'),
 })
 
+// ASCII-only on purpose: zero-width and lookalike characters are rejected at the door, so they cannot dodge the store's self-verification gate.
+const agentId = z.string().regex(/^[\w.:-]+$/, 'agent id may only contain letters, digits, and . : _ -')
+
 /** Input shapes for protocol registration. Findings and severity factors are validated per item in the handler. */
 export const inputs = {
   profile_target: { target: z.string().describe('Local directory path (or a GitHub repo URL if the operator enabled it).') },
@@ -90,10 +93,13 @@ export const inputs = {
     depth_tier: z.enum(DEPTH_TIERS).optional(),
     limit: z.number().int().positive().optional(),
   },
-  record_finding: { findings: z.array(z.unknown()).describe('Findings: {technique_id, file (relative), line, snippet, depth_tier, reachability}. Each is validated separately.') },
+  record_finding: {
+    reporting_agent: agentId,
+    findings: z.array(z.unknown()).describe('Findings: {technique_id, file (relative), line, snippet, depth_tier, reachability}. Each is validated separately.'),
+  },
   verify_finding: {
     finding_id: z.string().min(1),
-    agent: z.string().min(1),
+    agent: agentId,
     outcome: z.enum(['confirmed', 'disproved', 'ambiguous']),
     reasoning: z.string().min(1),
     severity_factors: z.unknown().optional().describe('Only with outcome "confirmed": {exploitability, reachability, blast_radius, data_sensitivity}, each an integer 0..3.'),
@@ -114,7 +120,7 @@ const fresh = (): Omit<State, 'target' | 'profile'> => ({ store: new FindingsSto
 export type Session = {
   profile_target(a: { target: string }): Promise<ToolResult>
   select_techniques(a: { stack?: string; language?: string; vuln_class?: string; depth_tier?: (typeof DEPTH_TIERS)[number]; limit?: number }): Promise<ToolResult>
-  record_finding(a: { findings: unknown[] }): Promise<ToolResult>
+  record_finding(a: { reporting_agent: string; findings: unknown[] }): Promise<ToolResult>
   verify_finding(a: { finding_id: string; agent: string; outcome: 'confirmed' | 'disproved' | 'ambiguous'; reasoning: string; severity_factors?: unknown }): Promise<ToolResult>
   report(a: { format?: 'markdown' | 'sarif' }): Promise<ToolResult>
   /** Deletes the GitHub clone, if any. Safe to call repeatedly. */
@@ -236,7 +242,7 @@ export function createSession(opts: SessionOptions = {}): Session {
       })
     }),
 
-    record_finding: guard(async ({ findings }) => {
+    record_finding: guard(async ({ reporting_agent, findings }) => {
       const idx = await loadIndex()
       const known = new Set(idx.techniques.map((t) => t.id))
       const accepted: Finding[] = []
@@ -247,7 +253,7 @@ export function createSession(opts: SessionOptions = {}): Session {
         const v = p.data
         if (!known.has(v.technique_id)) return rejected.push({ index: i, reason: `technique_id: unknown technique "${v.technique_id}"${registryErrors.length ? ` (note: ${registryWarning()})` : ''}` })
         try {
-          accepted.push(state.store.add({ technique_id: v.technique_id, file: v.file, line: v.line, snippet: v.snippet }, { depth_tier: v.depth_tier, reachability: v.reachability, reporting_agent: 'unattributed' /* TODO: call-level param on record_finding */ }))
+          accepted.push(state.store.add({ technique_id: v.technique_id, file: v.file, line: v.line, snippet: v.snippet }, { depth_tier: v.depth_tier, reachability: v.reachability, reporting_agent }))
         } catch (e) {
           rejected.push({ index: i, reason: reason(e) }) // the store's own contract check; still per finding
         }
