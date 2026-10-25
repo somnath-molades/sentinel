@@ -1,6 +1,7 @@
 import { parse } from 'yaml'
 import { z } from 'zod'
 import type { Result } from '../types.js'
+import { DOMAINS } from '../registry/vocabulary.js'
 
 export const DEPTH_TIERS = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'] as const
 export type DepthTier = (typeof DEPTH_TIERS)[number]
@@ -17,6 +18,8 @@ export const techniqueSchema = z.object({
   vuln_classes: z.array(z.string().min(1)),
   cwe: z.array(z.string()).optional(),
   depth_tier: z.enum(DEPTH_TIERS, { error: (iss) => `unknown depth_tier ${JSON.stringify(iss.input)}; expected one of ${DEPTH_TIERS.join(', ')}` }),
+  // Required and single-valued: an entry with no domain would pass every other check and never be dispatched.
+  domain: z.enum(DOMAINS, { error: (iss) => (iss.input === undefined ? `domain is required; expected one of ${DOMAINS.join(', ')}` : `unknown domain ${JSON.stringify(iss.input)}; expected one of ${DOMAINS.join(', ')}`) }),
   stacks: z.array(z.string().min(1)),
   detection: z.string().trim().min(1),
   verification: z.string().trim().min(1),
