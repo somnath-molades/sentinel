@@ -10,6 +10,20 @@ test('pure-reasoning mode prints the coverage banner', () => {
   expect(md).toMatch(/secret/i)
 })
 
+// A Phase 2 caller that passes warnings must not have to prepend the banner itself.
+test('warnings are rendered as a banner above the report, by toMarkdown itself', () => {
+  const md = toMarkdown([], profile, { mode: 'full', warnings: ['No hunter agents exist in this build.', 'Of 6 files scanned, 1 carries a language Sentinel recognises.'] })
+  expect(md.split('\n')[0]).toMatch(/^> \*\*Coverage warnings \(read before trusting this report\):\*\*/)
+  expect(md).toMatch(/^> - No hunter agents exist in this build\.$/m)
+  expect(md).toMatch(/^> - Of 6 files scanned, 1 carries a language Sentinel recognises\.$/m)
+  expect(md.indexOf('Coverage warnings')).toBeLessThan(md.indexOf('# Sentinel security report'))
+})
+
+test('no warnings means no banner', () => {
+  expect(toMarkdown([], profile, { mode: 'full', warnings: [] })).not.toMatch(/Coverage warnings/)
+  expect(toMarkdown([], profile, { mode: 'full' })).not.toMatch(/Coverage warnings/)
+})
+
 test('full mode prints no coverage banner', () => {
   const md = toMarkdown(findings, profile, { mode: 'full' })
   expect(md).not.toMatch(/dependency CVE/i)
@@ -31,6 +45,13 @@ test('truncation with zero findings is not a clean report', () => {
   const md = toMarkdown([], { ...profile, truncated: true }, { mode: 'full' })
   expect(md).toMatch(/truncated/i)
   expect(md).not.toMatch(/no issues|all clear|clean/i)
+})
+
+// M1: an in-tree symlink target can carry its own skip reason, so "nothing was missed" was false.
+test('the in-tree symlink text claims no completeness', () => {
+  const md = toMarkdown([], { ...profile, skipped: [{ path: 'packages/shared', reason: 'symlink' }] }, { mode: 'full' })
+  expect(md).not.toMatch(/nothing was missed/)
+  expect(md).toMatch(/examined at its real path \(any files within it skipped for other reasons are listed separately\)/)
 })
 
 test('a profile where everything was skipped says nothing was scanned', () => {

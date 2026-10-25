@@ -17,7 +17,7 @@ If any of this is not true, do not accept.
 
 ## What Sentinel does and does not do
 
-- Sentinel is read-only. It reads source files, configuration, infrastructure-as-code, dependency manifests, CI configuration and git history.
+- Sentinel is read-only. It reads source files, configuration, infrastructure-as-code, dependency manifests and CI configuration. It does not read your git history: the `.git` directory is skipped, and a GitHub target is cloned one commit deep.
 - It does not run your application, probe it, or connect to the target application or its infrastructure.
 - When the target is a GitHub repository, Sentinel does fetch the repository's contents over the network (through `gh`) in order to read them.
 - The attestation is recorded locally with a timestamp, and is asked for again for each new target.

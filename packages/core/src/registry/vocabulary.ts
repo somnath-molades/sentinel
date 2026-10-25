@@ -16,4 +16,8 @@ const LANGUAGE_STACK: Record<string, (typeof STACKS)[number]> = {
   java: 'java',
 }
 export const KNOWN_LANGUAGES: readonly string[] = Object.keys(LANGUAGE_STACK)
-export const stackForLanguage = (language: string): (typeof STACKS)[number] | undefined => LANGUAGE_STACK[language.toLowerCase()]
+// Own-property guard: a language named `__proto__` or `constructor` must be undefined here, not a prototype member.
+export const stackForLanguage = (language: string): (typeof STACKS)[number] | undefined => {
+  const key = language.toLowerCase()
+  return Object.hasOwn(LANGUAGE_STACK, key) ? LANGUAGE_STACK[key] : undefined
+}

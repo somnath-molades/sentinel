@@ -1,7 +1,7 @@
 import { realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname } from 'node:path'
-import { attestationRefusal, decideExitCode, loadAuthorization, profileTarget, resolveTarget, selectTechniques, stackForLanguage, toMarkdown, toSarif } from '@sentinel/core'
+import { attestationRefusal, coverageGap, decideExitCode, loadAuthorization, profileTarget, resolveTarget, selectTechniques, toMarkdown, toSarif } from '@sentinel/core'
 import type { Finding, Severity } from '@sentinel/core'
 import { CliError, loadRegistry, reason, registryWarning } from '../context.js'
 import type { Ctx } from '../context.js'
@@ -53,11 +53,10 @@ export async function scan(target: string, o: ScanOptions, { io, deps, defaultRe
     if (errors.length) warn(registryWarning(errors))
     if (index.techniques.length === 0) warn('The registry contains no techniques: nothing was examined.')
 
-    const languages = profile.languages.map((l) => l.language)
-    const stacks = [...new Set(languages.flatMap((l) => stackForLanguage(l) ?? []))].sort()
-    const unmapped = languages.filter((l) => stackForLanguage(l) === undefined)
-    if (unmapped.length) warn(`No technique stack exists for: ${unmapped.join(', ')}. Code in those languages is NOT examined by stack-specific techniques; do not read it as clean.`)
-    if (stacks.length === 0) warn("No stack could be derived from this target's files. Stack-specific techniques will not apply; an empty report is NOT a clean result.")
+    // Derived in core from file counts, so one recognised file in a tree of unrecognised ones cannot silence it.
+    const gap = coverageGap(profile)
+    for (const w of gap.warnings) warn(w.text, w.blocks)
+    const stacks = gap.stacks
     const coverage: string[] = []
     for (const stack of stacks) {
       const sel = selectTechniques(index, { stack })
@@ -71,10 +70,7 @@ export async function scan(target: string, o: ScanOptions, { io, deps, defaultRe
     const findings: Finding[] = []
     io.err(warnings.map((w) => `warning: ${w}\n`).join('') + coverage.map((c) => `coverage: ${c}\n`).join(''))
     if (o.format === 'sarif') io.out(JSON.stringify(toSarif(findings, profile, { mode: MODE, warnings: [...warnings, ...coverage] }), null, 2) + '\n')
-    else {
-      const banner = `> **Coverage warnings (read before trusting this report):**\n${[...warnings, ...coverage].map((w) => `> - ${w.replaceAll('\n', '\n>   ')}`).join('\n')}\n\n`
-      io.out(banner + toMarkdown(findings, profile, { mode: MODE }))
-    }
+    else io.out(toMarkdown(findings, profile, { mode: MODE, warnings: [...warnings, ...coverage] }))
     if (o.failOn !== null && blockers.length) {
       // A gate that cannot trip must not read as a gate that passed.
       io.err(`error: --fail-on ${o.failOn} gate cannot be evaluated, so this is not a pass (exit 2):\n${blockers.map((b) => `  - ${b.replaceAll('\n', '\n    ')}`).join('\n')}\n`)

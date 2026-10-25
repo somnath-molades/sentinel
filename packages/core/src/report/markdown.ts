@@ -19,7 +19,7 @@ const cap = (s: string): string => s[0]!.toUpperCase() + s.slice(1)
 // Order matters: declined scope first, because it is the gap most likely to hide a lot of real code.
 const SKIP_TEXT: Record<SkipRecord['reason'], string> = {
   symlink:
-    "**Declined scope.** Shortcuts (symbolic links) that Sentinel declined to follow. If a shortcut points to a place outside the scanned folder, what it points to was NOT examined; in a monorepo (for example `packages/shared -> ../../shared`) that can be a large share of your real code, so scan the folder it points to directly. If it points to somewhere inside the scanned folder, that target was examined at its real path and nothing was missed. This report cannot tell which case each shortcut below is.",
+    "**Declined scope.** Shortcuts (symbolic links) that Sentinel declined to follow. If a shortcut points to a place outside the scanned folder, what it points to was NOT examined; in a monorepo (for example `packages/shared -> ../../shared`) that can be a large share of your real code, so scan the folder it points to directly. If it points to somewhere inside the scanned folder, that target was examined at its real path (any files within it skipped for other reasons are listed separately). This report cannot tell which case each shortcut below is.",
   'too-large': 'Files over the size limit. Not examined. Large files can hold anything, so review them by hand or split them up.',
   unreadable: 'Files Sentinel could not open or read (permissions or a read error). Not examined. Fix the access problem and scan again.',
   'not-utf8': 'Text files in an encoding Sentinel cannot read. Not examined. Convert them to UTF-8 to include them.',
@@ -76,7 +76,11 @@ function findingBlock(f: Finding, label: string, verified: boolean): string {
   return out.join('\n')
 }
 
-export function toMarkdown(findings: Finding[], profile: TargetProfile, opts: { mode: 'full' | 'pure-reasoning' }): string {
+/**
+ * `warnings` are the caller's coverage gaps (see `coverageGap`). They are rendered here, not prepended by the
+ * caller: a consumer that forgets them would otherwise ship a report with no warnings at all.
+ */
+export function toMarkdown(findings: Finding[], profile: TargetProfile, opts: { mode: 'full' | 'pure-reasoning'; warnings?: string[] }): string {
   const confirmed = findings.filter((f) => f.status === 'confirmed')
   const review = findings.filter((f) => f.status === 'needs-review')
   const unverified = findings.filter((f) => f.status === 'candidate')
@@ -84,7 +88,12 @@ export function toMarkdown(findings: Finding[], profile: TargetProfile, opts: { 
   const rank = (f: Finding): number => (f.severity ? BAND_RANK[f.severity.band] : -1)
   const byRank = (a: Finding, b: Finding): number => rank(b) - rank(a)
 
-  const out: string[] = ['# Sentinel security report', '']
+  const out: string[] = []
+  const warnings = opts.warnings ?? []
+  if (warnings.length) {
+    out.push(`> **Coverage warnings (read before trusting this report):**\n${warnings.map((w) => `> - ${w.replaceAll('\n', '\n>   ')}`).join('\n')}`, '')
+  }
+  out.push('# Sentinel security report', '')
   out.push(`Target: ${inline(profile.target.root)} (scanned ${profile.generated_at})`, '')
 
   out.push('## Summary', '')

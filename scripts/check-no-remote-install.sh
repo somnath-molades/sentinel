@@ -2,7 +2,9 @@
 # Fail if any file pipes a network fetch into a shell or interpreter.
 #   (no args)  scan the repo; exit 1 on a hit, 2 on any error (fails closed)
 #   --stdin    apply the same pattern to stdin; exit 1 on a hit, 0 if clean (used by the test)
-# docs/ and .superpowers/ discuss the pattern in prose, so they are excluded; so are this script and its test (which holds known-bad samples).
+# docs/ and .superpowers/ discuss the pattern in prose, so they are excluded. This script and its test are NOT
+# excluded: both are executed, so a bad line added to either must be caught. The test assembles its known-bad
+# samples at runtime for that reason.
 # Backslash line continuations are joined before matching, so a split command is still caught.
 # shortcut: heuristic regex; obfuscation (variables, base64, `curl -o f; sh f`) is not caught, upgrade to a real shell parser if needed.
 
@@ -31,10 +33,16 @@ if [ "$1" = "--stdin" ]; then
   esac
 fi
 
-files=$(git ls-files --cached --others --exclude-standard -- . ':(exclude)docs' ':(exclude).superpowers' ':(exclude)scripts/check-no-remote-install.sh' ':(exclude)scripts/check-no-remote-install.test.ts') || {
+files=$(git ls-files --cached --others --exclude-standard -- . ':(exclude)docs' ':(exclude).superpowers') || {
   echo "ERROR: could not list files (git ls-files failed)" >&2
   exit 2
 }
+
+# A control that scans nothing must not report a pass: zero files means the listing is wrong, not that the tree is clean.
+if [ -z "$files" ]; then
+  echo "ERROR: git ls-files listed no files, so nothing was scanned (this is not a pass)" >&2
+  exit 2
+fi
 
 found=0
 while IFS= read -r f; do

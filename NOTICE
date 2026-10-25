@@ -7,11 +7,13 @@ This project builds technique knowledge on the open-source projects listed
 below. Each entry gives the source URL, its license, the full license text
 carried in this repository, the upstream commit the pack was built against,
 whether the content was modified, and how it was derived. Entries are added
-as upstream packs are vendored.
+as upstream packs are ingested, whether or not their text is reproduced here:
+the "Derivation" line of each entry says which.
 
-Vendored upstream content:
+Upstream sources credited (see each entry's Derivation line for whether any
+upstream text is reproduced in this repository):
 
-Each entry below follows the format shown here. Append one block per vendored
+Each entry below follows the format shown here. Append one block per upstream
 pack, in the same shape, separated by a blank line. The indented block is a
 template, not an entry; the "#" prefix marks it as such.
 

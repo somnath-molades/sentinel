@@ -10,6 +10,7 @@ import {
   STACKS,
   buildIndex,
   computeSeverity,
+  coverageGap,
   profileTarget,
   resolveTarget,
   selectTechniques,
@@ -50,16 +51,14 @@ const nonBlank = (s: string): boolean => s.trim() !== ''
 // languages are refused or flagged, never passed through (an unknown token silently matches only `generic`).
 const stackFor = stackForLanguage
 
-// Profile languages -> stack tokens. Empty `suggested` is the dangerous case (C/C++, Terraform, YAML-only repos
-// have no classified language): without a warning, an empty result reads as clean rather than unexamined.
-function stackInfo(profile: TargetProfile): { suggested: string[]; unmapped_languages: string[]; warning?: string } {
-  const langs = profile.languages.map((l) => l.language)
-  const suggested = [...new Set(langs.flatMap((l) => stackFor(l) ?? []))].sort()
-  const unmapped = langs.filter((l) => stackFor(l) === undefined)
-  const parts: string[] = []
-  if (unmapped.length) parts.push(`No technique stack exists for: ${unmapped.join(', ')}. Code in those languages will NOT be examined by stack-specific techniques; do not report it as clean.`)
-  if (suggested.length === 0) parts.push(`No stack token could be derived from this target's files. Stack-specific techniques will not apply unless you choose a stack explicitly with select_techniques; an empty report is NOT a clean result.`)
-  return { suggested, unmapped_languages: unmapped, ...(parts.length ? { warning: parts.join(' ') } : {}) }
+// Profile -> stack tokens plus coverage loss, derived in core from file counts (coverageGap). The dangerous case
+// is a tree whose unexamined files carry no classified language at all (C/C++, Terraform, YAML, or one JS build
+// script beside a hundred unrecognised files): without a warning, an empty result reads as clean, not unexamined.
+function stackInfo(profile: TargetProfile): { suggested: string[]; unmapped_languages: string[]; warnings: string[]; warning?: string } {
+  const gap = coverageGap(profile)
+  const warnings = gap.warnings.map((w) => w.text)
+  if (gap.stacks.length === 0) warnings.push('Choose a stack explicitly with select_techniques if you want stack-specific techniques for this target.')
+  return { suggested: gap.stacks, unmapped_languages: gap.unmapped_languages, warnings, ...(warnings.length ? { warning: warnings.join(' ') } : {}) }
 }
 
 const stackEnum = z.enum(STACKS)
@@ -297,18 +296,17 @@ export function createSession(opts: SessionOptions = {}): Session {
         if (match === 'none') warnings.push(`No techniques exist for ${what}: nothing was examined for it.`)
         else if (match === 'wildcard-only') warnings.push(`Only generic techniques exist for ${what}: partial coverage.`)
       }
-      const stacks = stackInfo(profile)
-      if (stacks.warning) warnings.push(stacks.warning)
+      warnings.push(...stackInfo(profile).warnings)
       if (state.rejected) warnings.push(`${state.rejected} finding(s) were rejected at ingest and are NOT in this report.`)
 
-      const body = format === 'sarif' ? toSarif(findings, profile, { mode, warnings }) : toMarkdown(findings, profile, { mode })
-      const banner = warnings.length ? `> **Coverage warnings (read before trusting this report):**\n${warnings.map((w) => `> - ${w}`).join('\n')}\n\n` : ''
+      // The banner is rendered by toMarkdown itself, so no consumer can ship a report without it.
+      const body = format === 'sarif' ? toSarif(findings, profile, { mode, warnings }) : toMarkdown(findings, profile, { mode, warnings })
       return ok({
         format: format ?? 'markdown',
         coverage_warnings: warnings,
         findings_recorded: findings.length,
         findings_rejected: state.rejected,
-        report: typeof body === 'string' ? banner + body : body,
+        report: body,
         // report is a repeatable read-only query, so it does not delete the clone; that happens on the next
         // profile_target, on profiling failure, and when the server closes.
         ...(cloneDir ? { clone_retained: 'The GitHub clone stays on disk until the next profile_target or the server closes, then it is deleted.' } : {}),

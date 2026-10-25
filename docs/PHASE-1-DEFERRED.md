@@ -2,21 +2,23 @@
 
 Findings that review raised during the Phase 0-1 build and that were deliberately not fixed in that phase. They were collected from the phase ledger, which was scratch material and is not kept. This is the only maintained copy.
 
-Counts: **112 entries across 14 tasks: 2 must-fix before merge and 110 minors.** Earlier summaries said "roughly 90". The ledger's own per-task tallies differ from the entries below in several places; this document counts each distinct finding once. Two entries are already closed or partly closed and are marked.
+Counts: **112 entries across 14 tasks: 2 must-fix before merge and 110 minors.** Earlier summaries said "roughly 90". The ledger's own per-task tallies differ from the entries below in several places; this document counts each distinct finding once.
+
+Status after the final fix wave before merge: **7 entries closed (M1, M2, T5-8, T5-9, T5-10, T1-1, T1-3), 105 still open**, of which T7-6 stays partly closed. Closed entries are kept and marked **CLOSED**, never deleted. The whole-branch review's own findings are recorded in their own section below.
 
 Each entry says what is wrong, where, and why it was deferred. Where a finding was reviewer-rated Minor, the reason is "minor, triage at final review" unless stated.
 
 ## Must fix before merge
 
-**M1. Task 11, skip-reason text: false completeness claim.** The coverage text for a skipped in-tree symlink ends with "and nothing was missed". That is false: the symlink's target can itself carry a skip reason (vendored, too large, generated, binary), and those are listed separately. Same defect class (overstated completeness) that this task was already corrected for twice. Suggested replacement: "...was examined at its real path (any files within it skipped for other reasons are listed separately)". Deferred only to avoid a third fix round for one clause.
+**M1. CLOSED (final fix wave). Task 11, skip-reason text: false completeness claim.** The coverage text for a skipped in-tree symlink ends with "and nothing was missed". That is false: the symlink's target can itself carry a skip reason (vendored, too large, generated, binary), and those are listed separately. Same defect class (overstated completeness) that this task was already corrected for twice. Suggested replacement: "...was examined at its real path (any files within it skipped for other reasons are listed separately)". Deferred only to avoid a third fix round for one clause. **Closed:** the suggested replacement is the shipped text, with a test asserting the old clause is gone.
 
-**M2. Task 12, language lookup: prototype-member read on untrusted input.** The language-to-stack lookup moved into core is a plain object index. A language named `__proto__` or `constructor` returns a prototype member instead of `undefined`. Not exploitable: the handler's membership check against the stack vocabulary refuses it, though with a misleading message. It matters because the repository already uses the own-property guard (`Object.hasOwn`) for this pattern in the stack detector, and because Sentinel would flag the pattern in other code. Fix is one line: an own-property check or a `Map`.
+**M2. CLOSED (final fix wave). Task 12, language lookup: prototype-member read on untrusted input.** The language-to-stack lookup moved into core is a plain object index. A language named `__proto__` or `constructor` returns a prototype member instead of `undefined`. Not exploitable: the handler's membership check against the stack vocabulary refuses it, though with a misleading message. It matters because the repository already uses the own-property guard (`Object.hasOwn`) for this pattern in the stack detector, and because Sentinel would flag the pattern in other code. Fix is one line: an own-property check or a `Map`. **Closed:** `stackForLanguage` guards with `Object.hasOwn`, with a test over `__proto__`, `constructor`, `toString`, `hasOwnProperty` and `valueOf`.
 
 ## Task 1: workspace, guard, CI
 
-- T1-1. `scripts/check-no-remote-install.sh` and its test are excluded from the scan by path, yet both are executed (CI runs the script, vitest runs the test). A fetch-pipe-interpreter line added to either is never scanned. Close it by building the test's bad samples by string concatenation, then dropping both exclusions.
+- T1-1. **CLOSED (final fix wave).** The script and its test were excluded from the scan by path, yet both are executed (CI runs the script, vitest runs the test), so a fetch-pipe-interpreter line added to either was never scanned. Closed as suggested: the test assembles its bad samples by string concatenation and both exclusions are gone, with a test asserting no `scripts/` exclusion comes back.
 - T1-2. Residual regex evasions in the guard: `curl u | /usr/bin/env sh` (path prefix comes after the wrapper group); a pipe at end of line with the interpreter on the next line (only backslash continuations are joined); `sudo -u root sh` (the option's argument breaks the wrapper match); `xargs sh`.
-- T1-3. If `git ls-files` succeeds but returns zero files, the guard passes silently. A zero-files check would make it fail closed.
+- T1-3. **CLOSED (final fix wave).** A listing that succeeded but returned zero files made the guard pass silently. It now exits 2 with a reason, and a test runs the guard in an empty repository.
 - T1-4. Filenames containing newlines are mishandled by the guard's read loop.
 - T1-5. The smoke test asserts only the semver shape, so `SENTINEL_CORE_VERSION` can drift from `packages/core/package.json` unnoticed (the duplicated literal was mandated by the brief).
 - T1-6. Nobody checked that `tsconfig.base.json` `rootDir`/`outDir` agree with `tsconfig.typecheck.json` including `scripts/`; the clean lint run is the only evidence.
@@ -66,9 +68,9 @@ Not findings but launch blockers from this task: ten placeholders need a human b
 - T5-5. The `NOTICE` template lines are indented and hash-prefixed while the prose says lines beginning with a hash are comments; a later parsing phase will trip on it.
 - T5-6. Tests cannot check `defensive_use` quality mechanically.
 - T5-7. A test uses an `endsWith` path check that is POSIX-only; `basename` would be portable.
-- T5-8. `AUDIT.md:49-50` says the firm rows' coverage is "as firm as the rest of the row", which overstates: both firm-labelled characterisations were corrected after review. Suggested: "firmer than the advisory rows, though both characterisations were corrected once after review".
-- T5-9. `AUDIT.md:51-52` says the advisory paraphrase is drawn from "GitHub description and README framing", while the implementer's report says "description and selective reading". One is wrong; if no README was read, drop the claim.
-- T5-10. `AUDIT.md:26` (row 2) says "22 vulnerability rule files" while the body and normalizer requirement 25 say 66 files for 22 distinct rules. Should read 22 rules (66 files across agent variants).
+- T5-8. **CLOSED (final fix wave):** the suggested wording is now in the file. `AUDIT.md:49-50` said the firm rows' coverage is "as firm as the rest of the row", which overstates: both firm-labelled characterisations were corrected after review. Suggested: "firmer than the advisory rows, though both characterisations were corrected once after review".
+- T5-9. **CLOSED (final fix wave):** the README claim was dropped; the note now says the GitHub description was read selectively and that no README was read for those rows. `AUDIT.md:51-52` said the advisory paraphrase is drawn from "GitHub description and README framing", while the implementer's report says "description and selective reading". One is wrong; if no README was read, drop the claim.
+- T5-10. **CLOSED (final fix wave):** row 2 now reads "22 vulnerability rules (66 files across agent variants)". `AUDIT.md:26` said "22 vulnerability rule files" while the body and normalizer requirement 25 say 66 files for 22 distinct rules. Should read 22 rules (66 files across agent variants).
 - T5-11. The cosmetic class-list wording correction in `AUDIT.md` was not verified against the upstream file by the round-2 re-reviewer (low risk; round 1 verified the underlying grouping).
 
 ## Task 6: target profile schema
@@ -167,6 +169,17 @@ Not findings but launch blockers from this task: ten placeholders need a human b
 - T14-3. The server's test helper auto-attests, so only the explicit raw-call tests exercise refusal.
 - T14-4. The authorization document is resolved relative to the package location and a missing file throws (fail-closed).
 - T14-5. The three init-only dependency seams grow the public dependency type.
+
+## Whole-branch review after Task 15, and the final fix wave (not counted above)
+
+- **I1. Coverage-gap derivation (critical, fixed).** Both consumers derived the coverage-gap warning from `profile.languages`, so the unmapped set was empty whenever the unexamined files carried no recognised language at all: one JavaScript build script beside Rust, C, Terraform or YAML silenced the warning for the whole repository and the scan read as clean. Fixed by `coverageGap` in core (`packages/core/src/recon/coverage.ts`), derived from `file_count` against the number of files carrying a recognised language and naming the unexamined share; the CLI and the MCP server both consume it. **Still open (Phase 2's first task):** moving the rest of the warning derivation (hunters, registry load errors, per-stack technique coverage, mode) into core; each consumer still assembles that half itself.
+- **I2. `toMarkdown` had no `warnings` parameter (fixed).** Markdown was honest only by caller convention, each consumer prepending its own banner, so a harness wrapper calling `toMarkdown` directly got a report with no warnings. It now takes `warnings` and renders the banner itself; both consumers pass theirs.
+- **Truncation reached only the report, not the warning list or the gate (fixed).** `profile.truncated` is now a blocking coverage warning like the other coverage-loss conditions, so a `--fail-on` gate on a scan that stopped early exits 2.
+- **Judgment recorded with that fix:** the unexamined-share warning is loud but does **not** block a `--fail-on` gate, because almost every real repository holds some file with no recognised language (a README, a manifest) and a gate that can never pass is not a gate. The conditions that make a gate meaningless (no stack derivable at all, truncation, no hunters, registry load failures, a stack with no techniques) do block it. Revisit when hunters exist and the unexamined share can be weighed against what was actually hunted.
+- **I3. Route extraction is discarded for unlisted frameworks.** Open; Phase 2's first task.
+- **I4. The store carries no reporting-agent identity,** so a self-confirmation cannot be detected. Open; Phase 2's first task.
+- **I5. `c`/`cpp` extensions and vocabulary are unmapped,** so the registry's C technique is unreachable. Open; Phase 2's first task.
+- **I6. Severity lives outside the store** (no field, no setter). Open; Phase 2's first task.
 
 ## Recorded decisions and inputs for later phases (not counted above)
 

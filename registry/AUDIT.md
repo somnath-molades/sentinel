@@ -23,7 +23,7 @@ Ingestion modes follow spec §5.3:
 | # | Source (as named by owner) | Repository | Licence as read | Read from | Commit audited | Coverage areas (advisory — see note) | Ingestion mode |
 |---|---|---|---|---|---|---|---|
 | 1 | Claude Cybersecurity — Agrici Daniel | https://github.com/AgriciDaniel/pya | MIT | `LICENSE` (`MIT License` / `Copyright (c) 2026 AgriciDaniel`) | `416c17fa09a234a1a34709d31b335d30196b9899` | Security-audit plugin, 9 specialist agents, dated threat feed | `vendored` (not used in this task) |
-| 2 | VBsec — Tanviet12 | https://github.com/tanviet12/vbsec | MIT | `LICENSE` (`MIT License` / `Copyright (c) 2026 Bùi Tấn Việt`) | `1b86c27936d350d1a9ca67f044341262d4219d4e` | 22 vulnerability rule files: secrets, injection, XSS, IDOR, access control, crypto, dependencies | `vendored` — **normalized as pack `vbsec`** |
+| 2 | VBsec — Tanviet12 | https://github.com/tanviet12/vbsec | MIT | `LICENSE` (`MIT License` / `Copyright (c) 2026 Bùi Tấn Việt`) | `1b86c27936d350d1a9ca67f044341262d4219d4e` | 22 vulnerability rules (66 files across agent variants): secrets, injection, XSS, IDOR, access control, crypto, dependencies | `vendored` — **normalized as pack `vbsec`** |
 | 3 | OS skills — Agna | **NOT LOCATED** | — | — | — | — | unassigned |
 | 4 | Coast Security (as a skill) | **NOT LOCATED** | — | — | — | — | unassigned |
 | 5 | Agent Guard — Go Plus Security | https://github.com/GoPlusSecurity/agentguard | MIT | `LICENSE` (`MIT License` / `Copyright (c) 2025 GoPlusSecurity`) | `337b767ea42eab3c51df7e6a777e9432d8effd94` | Agent-runtime guard: malicious skill detection, secret exfiltration, 24 detection rules, trust registry | `vendored` (not used in this task) |
@@ -44,9 +44,10 @@ was resolved from the API at audit time. Treat those as established.
 
 "Coverage areas" is **advisory**. For sources 2 and 8 it is derived from reading the
 repository's git tree at the pinned commit and reading representative content files, so
-it is as firm as the rest of the row. For sources 1, 5, 6, 7, 9, 10 and 11 it is a
-paraphrase of the repository's own GitHub description and README framing; **their trees
-were not read.** Sources 3 and 4 have no coverage value because they were not located.
+it is firmer than the advisory rows, though both characterisations were corrected once
+after review. For sources 1, 5, 6, 7, 9, 10 and 11 it is a paraphrase of the
+repository's own GitHub description, read selectively; no README was read for them,
+and **their trees were not read.** Sources 3 and 4 have no coverage value because they were not located.
 
 This is a deliberate limit, not an oversight: the task's requirement was licence and
 commit accuracy plus two ingested packs, not a depth characterisation of all eleven. But

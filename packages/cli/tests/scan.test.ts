@@ -103,6 +103,30 @@ describe('silent-failure guards', () => {
     expect(r.err).toMatch(/stack-specific techniques will not apply/i)
   })
 
+  // One recognised file used to derive a stack and silence every coverage warning for the whole tree.
+  test('one recognised file does not suppress the coverage warning for the files around it', async () => {
+    const t = await tmpTarget({
+      'package.json': '{"name":"x"}\n',
+      'src/a.c': 'int main(){return 0;}\n',
+      'src/b.cpp': 'int f(){return 1;}\n',
+      'main.tf': 'resource "aws_s3_bucket_acl" "b" { acl = "public-read" }\n',
+      'config.yml': 'db:\n  password: "hunter2"\n',
+      'server.js': 'const express = require("express")\n',
+    })
+    const r = await cli(['scan', t])
+    expect(r.err).toMatch(/node: \d+ technique/) // a stack is still derived from the one JavaScript file
+    expect(r.err).toMatch(/Of 6 files scanned, 1 carries a language Sentinel recognises/)
+    expect(r.err).toMatch(/5 \(83%\)/)
+    expect(r.out).toMatch(/examined by no stack-specific technique/) // and it reaches the report, not just stderr
+  })
+
+  test('a truncated scan says so as a warning, not only in the coverage section', async () => {
+    const t = await tmpTarget({ 'a.js': 'const a = 1\n', 'b.js': 'const b = 2\n', 'c.js': 'const c = 3\n' })
+    const r = await cli(['scan', t, '--max-files', '2'])
+    expect(r.err).toMatch(/warning: The file limit was reached/)
+    expect(r.out).toMatch(/file limit was reached/)
+  })
+
   test('a language with no technique stack is called out as NOT examined', async () => {
     const t = await tmpTarget({ 'main.rs': 'fn main() {}\n', 'a.py': 'print(1)\n' })
     const r = await cli(['scan', t])
@@ -207,6 +231,25 @@ describe('--fail-on is a gate that must be able to trip', () => {
     const r = await cli(['scan', t, '--fail-on', 'high', ...(reg ? ['--registry', reg] : [])], { huntersAvailable: true })
     expect(r.code).toBe(2)
     expect(r.err).toMatch(msg)
+  })
+
+  // Deliberate: almost every repository holds a file with no recognised language, so this warning is loud but
+  // does not block. Only the conditions that make the gate meaningless (no stack at all, truncation) block it.
+  test('the unexamined-share warning is printed but does not block the gate', async () => {
+    const t = await tmpTarget({ 'a.js': 'const a = 1\n', 'main.tf': 'resource "x" "y" {}\n' })
+    const r = await cli(['scan', t, '--fail-on', 'high'], { huntersAvailable: true })
+    expect(r.code).toBe(0)
+    expect(r.err).toMatch(/examined by no stack-specific technique/)
+    expect(r.err).not.toMatch(/gate cannot be evaluated/)
+  })
+
+  // A gate on a scan that walked 5 of 50,000 files must not exit 0.
+  test('a truncated scan blocks the gate', async () => {
+    const t = await tmpTarget({ 'a.js': 'const a = 1\n', 'b.js': 'const b = 2\n', 'c.js': 'const c = 3\n' })
+    const r = await cli(['scan', t, '--fail-on', 'high', '--max-files', '2'], { huntersAvailable: true })
+    expect(r.code).toBe(2)
+    expect(r.err).toMatch(/gate cannot be evaluated/)
+    expect(r.err).toMatch(/file limit was reached/)
   })
 
   test('without --fail-on the same scan still exits 0 with warnings', async () => {

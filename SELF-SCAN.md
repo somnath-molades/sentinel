@@ -33,7 +33,7 @@ See the first section for why these are zeros.
 
 ## What the profile detected
 
-- Languages: TypeScript (53 files), JavaScript (5), shell (1). These 59 are the files with a recognised source language. The other 111 of the 170 scanned files (Markdown documentation, JSON and YAML configuration, registry technique files, fixture data) are walked and counted but carry no language, so no stack is derived from them.
+- Languages: TypeScript (53 files), JavaScript (5), shell (1). These 59 are the files with a recognised source language. The other 111 of the 170 scanned files (Markdown documentation, JSON and YAML configuration, registry technique files, fixture data) are walked and counted but carry no language, so no stack is derived from them. Sentinel now prints this share itself: every scan warns how many of the files it walked carry a recognised language and how many were examined by no stack-specific technique.
 - Frameworks, auth libraries, data layers, IaC, client boundary: none. CI: `github-actions`.
 - Technique selection: `node`, 12 techniques, exact coverage. No technique stack exists for `shell`, so the one shell script is not examined by stack-specific techniques.
 
@@ -50,9 +50,9 @@ Dependencies were not checked for known vulnerabilities (no CVE tooling in this 
 
 ## Open items
 
-Review across the phase's fourteen tasks deferred 110 minor findings and flagged 2 must-fix before merge. They are listed in full, with where each is and why it was deferred, in [`docs/PHASE-1-DEFERRED.md`](docs/PHASE-1-DEFERRED.md). They are open, not resolved (one is partly closed, noted there). The two must-fix items:
+Review across the phase's fourteen tasks deferred 110 minor findings and flagged 2 must-fix before merge. They are listed in full, with where each is and why it was deferred, in [`docs/PHASE-1-DEFERRED.md`](docs/PHASE-1-DEFERRED.md). They are open, not resolved except where that document marks an item closed. The two must-fix items were fixed before merge:
 
-1. **False "nothing was missed" claim.** The coverage text for skipped symlinks says that a link pointing inside the scanned folder was examined and "nothing was missed". That is not always true: the link's target can carry its own skip reason (vendored, too large, generated). The text overstates.
-2. **Prototype-member lookup on untrusted input.** A language lookup indexes a plain object with an untrusted key, so `__proto__` or `constructor` returns a prototype member. It is not exploitable, because a vocabulary check refuses the value first. It is inconsistent with the `Object.hasOwn` pattern this repository uses elsewhere, and it is a pattern Sentinel itself would flag.
+1. **False "nothing was missed" claim (fixed).** The coverage text for skipped symlinks says that a link pointing inside the scanned folder was examined and "nothing was missed". That is not always true: the link's target can carry its own skip reason (vendored, too large, generated). The text overstates.
+2. **Prototype-member lookup on untrusted input (fixed).** A language lookup indexes a plain object with an untrusted key, so `__proto__` or `constructor` returns a prototype member. It is not exploitable, because a vocabulary check refuses the value first. It is inconsistent with the `Object.hasOwn` pattern this repository uses elsewhere, and it is a pattern Sentinel itself would flag.
 
 Other known limits of this phase: no hunter agents (above); no CVE or secret-entropy tooling; stacks without techniques (such as shell) are not examined; the CI self-scan asserts that the pipeline exits 0 and is not a finding gate.
