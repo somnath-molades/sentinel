@@ -18,8 +18,8 @@ test('is 16 hex chars', () => {
   expect(fingerprint(base)).toMatch(/^[0-9a-f]{16}$/)
 })
 test('field boundaries cannot collide', () => {
-  expect(fingerprint({ ...base, technique_id: 'a', file: 'b c' })).not.toBe(
-    fingerprint({ ...base, technique_id: 'a b', file: 'c' }),
+  expect(fingerprint({ ...base, technique_id: 'a', file: 'bc' })).not.toBe(
+    fingerprint({ ...base, technique_id: 'ab', file: 'c' }),
   )
 })
 test('token-internal whitespace is significant', () => {

@@ -66,12 +66,54 @@ test('list filters by status; unknown id throws', () => {
 })
 
 const mk = (status: Finding['status'], band?: Severity['band']): Finding => {
-  const f: Finding = { ...base, ...meta, id: 'x', status, verdicts: [] }
+  const f: Finding = { ...base, ...meta, id: 'x', status, verdicts: [], additional_locations: [] }
   if (band) {
     f.severity = { band, score: 0, factors: { exploitability: 0, reachability: 0, blast_radius: 0, data_sensitivity: 0 } }
   }
   return f
 }
+test('returned findings are copies: mutation cannot change status or erase a disproof', () => {
+  const s = new FindingsStore()
+  const { id } = s.add(base, meta)
+  s.recordVerdict(id, v('disproved'))
+  const g = s.get(id)!
+  g.status = 'confirmed'
+  g.verdicts.length = 0
+  s.list()[0]!.status = 'confirmed'
+  expect(s.get(id)).toMatchObject({ status: 'dropped' })
+  expect(s.get(id)!.verdicts).toHaveLength(1)
+  expect(s.recordVerdict(id, v('confirmed', 'v2')).status).toBe('dropped')
+})
+test('an unknown outcome is refused and changes nothing', () => {
+  const s = new FindingsStore()
+  const { id } = s.add(base, meta)
+  expect(() => s.recordVerdict(id, { agent: 'a', outcome: 'confirmd' as 'confirmed', reasoning: 'r' })).toThrow(/outcome/)
+  expect(s.get(id)).toMatchObject({ status: 'candidate', verdicts: [] })
+})
+test('extra runtime properties on input are not stored', () => {
+  const s = new FindingsStore()
+  const sneaky = { ...base, severity: { band: 'critical' }, status: 'confirmed' } as typeof base
+  const f = s.add(sneaky, meta)
+  expect(f.status).toBe('candidate')
+  expect(f).not.toHaveProperty('severity')
+})
+test('empty reachability and empty or whitespace snippets are refused', () => {
+  const s = new FindingsStore()
+  expect(() => s.add(base, { ...meta, reachability: '  ' })).toThrow(/reachability/)
+  expect(() => s.add({ ...base, snippet: ' \n\t' }, meta)).toThrow(/snippet/)
+  expect(s.list()).toHaveLength(0)
+})
+test('a duplicate at another line keeps its location and reachability as evidence', () => {
+  const s = new FindingsStore()
+  const a = s.add(base, meta)
+  s.add({ ...base, line: 90 }, { ...meta, reachability: 'cron job passes env value' })
+  s.add({ ...base, line: 90 }, { ...meta, reachability: 'cron job passes env value' })
+  const f = s.get(a.id)!
+  expect(s.list()).toHaveLength(1)
+  expect(f.line).toBe(40)
+  expect(f.additional_locations).toEqual([{ line: 90, reachability: 'cron job passes env value' }])
+})
+
 describe('decideExitCode', () => {
   test('at or above threshold exits 1', () => {
     expect(decideExitCode([mk('confirmed', 'high')], 'high')).toBe(1)

@@ -9,6 +9,8 @@ export type Finding = FindingInput & {
   depth_tier: DepthTier
   reachability: string
   verdicts: Verdict[]
+  // Other (line, reachability) pairs from duplicate reports, so dedupe collapses the report, not the evidence.
+  additional_locations: { line: number; reachability: string }[]
   severity?: Severity
 }
 export type AddMeta = { depth_tier: DepthTier; reachability: string }
@@ -22,33 +24,60 @@ function statusFrom(verdicts: Verdict[]): Finding['status'] {
   return 'candidate'
 }
 
+const OUTCOMES: readonly string[] = ['confirmed', 'disproved', 'ambiguous']
+
+// Callers are untrusted agents: the store keeps its own records and only hands out deep copies,
+// so nobody can set status or erase a recorded disproof.
 export class FindingsStore {
   private readonly findings = new Map<string, Finding>()
 
   add(input: FindingInput, meta: AddMeta): Finding {
+    if (!meta.reachability.trim()) throw new Error('reachability must be a non-empty reason')
+    if (!input.snippet.trim()) throw new Error('snippet must not be empty')
     const id = fingerprint(input)
     const existing = this.findings.get(id)
-    if (existing) return existing
-    const finding: Finding = { ...input, ...meta, id, status: 'candidate', verdicts: [] }
+    if (existing) {
+      const seen = (l: { line: number; reachability: string }): boolean =>
+        l.line === input.line && l.reachability === meta.reachability
+      if (!seen(existing) && !existing.additional_locations.some(seen)) {
+        existing.additional_locations.push({ line: input.line, reachability: meta.reachability })
+      }
+      return structuredClone(existing)
+    }
+    // Explicit picks: extra runtime properties on agent JSON (e.g. a fabricated severity) are dropped.
+    const finding: Finding = {
+      technique_id: input.technique_id,
+      file: input.file,
+      line: input.line,
+      snippet: input.snippet,
+      depth_tier: meta.depth_tier,
+      reachability: meta.reachability,
+      id,
+      status: 'candidate',
+      verdicts: [],
+      additional_locations: [],
+    }
     this.findings.set(id, finding)
-    return finding
+    return structuredClone(finding)
   }
 
   recordVerdict(id: string, v: Verdict): Finding {
     const f = this.findings.get(id)
     if (!f) throw new Error(`unknown finding: ${id}`)
-    f.verdicts.push(v)
+    if (!OUTCOMES.includes(v.outcome)) throw new Error(`unknown verdict outcome: ${String(v.outcome)}`)
+    f.verdicts.push({ agent: v.agent, outcome: v.outcome, reasoning: v.reasoning })
     f.status = statusFrom(f.verdicts)
-    return f
+    return structuredClone(f)
   }
 
   get(id: string): Finding | undefined {
-    return this.findings.get(id)
+    const f = this.findings.get(id)
+    return f && structuredClone(f)
   }
 
   list(filter?: { status?: Finding['status'] }): Finding[] {
     const all = [...this.findings.values()]
-    return filter?.status ? all.filter((f) => f.status === filter.status) : all
+    return structuredClone(filter?.status ? all.filter((f) => f.status === filter.status) : all)
   }
 }
 
