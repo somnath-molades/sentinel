@@ -53,7 +53,9 @@ function proseSections(body: string): Record<string, string> {
 }
 
 export function parseTechnique(markdown: string, source: string): Result<TechniqueEntry, SchemaError> {
-  const err = (problem: string): Result<TechniqueEntry, SchemaError> => ({ ok: false, error: { file: source, problem } })
+  // Names the entry once its frontmatter yields a usable id; before that (or without one) only the file is known.
+  let who = ''
+  const err = (problem: string): Result<TechniqueEntry, SchemaError> => ({ ok: false, error: { file: source, problem: who + problem } })
   const m = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n([\s\S]*))?$/.exec(markdown)
   if (!m) return err('missing YAML frontmatter (file must start with a --- block)')
   let front: unknown
@@ -63,6 +65,7 @@ export function parseTechnique(markdown: string, source: string): Result<Techniq
     return err(`invalid YAML frontmatter: ${e instanceof Error ? e.message : String(e)}`)
   }
   if (typeof front !== 'object' || front === null || Array.isArray(front)) return err('frontmatter must be a YAML mapping')
+  if ('id' in front && typeof front.id === 'string' && front.id !== '') who = `entry "${front.id}": `
   const misplaced = PROSE_FIELDS.filter((k) => k in front)
   if (misplaced.length > 0) {
     return err(`${misplaced.join(', ')}: must be a "## " section in the body, not a frontmatter key`)

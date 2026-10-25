@@ -135,11 +135,24 @@ test('every entry declares a domain in the vocabulary', () => {
   for (const t of allTechniques()) expect(DOMAINS).toContain(t.domain)
 })
 
-test('every entry routes to exactly one domain assignment', () => {
-  // The silent-miss guard: an entry that routes nowhere fails here rather than disappearing.
-  const byDomain = new Map<string, number>()
-  for (const t of allTechniques()) byDomain.set(t.domain, (byDomain.get(t.domain) ?? 0) + 1)
-  expect([...byDomain.values()].reduce((a, b) => a + b, 0)).toBe(allTechniques().length)
+// Spec 4.3, verbatim. Pinned so a re-filed or mistyped entry fails here and names itself.
+// (The "appears in exactly one assignment" form needs planHunts and belongs to Task 9.)
+test('every entry carries the primary domain spec 4.3 assigns it', () => {
+  expect(Object.fromEntries(allTechniques().map((t) => [t.id, t.domain]))).toEqual({
+    'sql-injection-built-query-string': 'injection',
+    'command-injection-shell-interpolation': 'injection',
+    'reflected-xss-unescaped-output': 'injection',
+    'path-traversal-unvalidated-file-path': 'injection',
+    'unsafe-deserialization-untrusted-payload': 'injection',
+    'cross-file-taint-source-to-sink': 'injection',
+    'hardcoded-secret-in-source': 'secrets',
+    'vulnerable-dependency-version': 'dependencies',
+    'permissive-cors-with-credentials': 'authorization',
+    'entrypoint-reachability-under-auth-state': 'authorization',
+    'over-permissive-agent-tool-allowlist': 'agentic',
+    'debug-mode-verbose-errors': 'configuration',
+    'unbounded-copy-into-fixed-buffer': 'memory-safety',
+  })
 })
 
 test('the injection domain holds the cross-cutting taint entry', () => {
