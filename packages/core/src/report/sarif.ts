@@ -35,7 +35,7 @@ const loc = (file: string, line: number, text?: string): SarifLocation => ({
   ...(text ? { message: { text } } : {}),
 })
 
-export function toSarif(findings: Finding[], profile: TargetProfile, opts: { mode: 'full' | 'pure-reasoning' } = { mode: 'full' }): SarifLog {
+export function toSarif(findings: Finding[], profile: TargetProfile, opts: { mode: 'full' | 'pure-reasoning' }): SarifLog {
   // Only verified findings: needs-review and candidates are unverified claims, dropped ones were disproved.
   const confirmed = findings.filter((f) => f.status === 'confirmed')
   const skipped: Record<string, number> = {}

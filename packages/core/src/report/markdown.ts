@@ -19,7 +19,7 @@ const cap = (s: string): string => s[0]!.toUpperCase() + s.slice(1)
 // Order matters: declined scope first, because it is the gap most likely to hide a lot of real code.
 const SKIP_TEXT: Record<SkipRecord['reason'], string> = {
   symlink:
-    '**Declined scope.** Shortcuts (symbolic links) that Sentinel declined to follow because they lead outside the scanned folder. What they point to was NOT examined. In a monorepo (for example `packages/shared -> ../../shared`) that can be a large share of your real code. Scan the folder they point to directly to include it.',
+    "**Declined scope.** Shortcuts (symbolic links) that Sentinel declined to follow. If a shortcut points to a place outside the scanned folder, what it points to was NOT examined; in a monorepo (for example `packages/shared -> ../../shared`) that can be a large share of your real code, so scan the folder it points to directly. If it points to somewhere inside the scanned folder, that target was examined at its real path and nothing was missed. This report cannot tell which case each shortcut below is.",
   'too-large': 'Files over the size limit. Not examined. Large files can hold anything, so review them by hand or split them up.',
   unreadable: 'Files Sentinel could not open or read (permissions or a read error). Not examined. Fix the access problem and scan again.',
   'not-utf8': 'Text files in an encoding Sentinel cannot read. Not examined. Convert them to UTF-8 to include them.',
@@ -97,7 +97,7 @@ export function toMarkdown(findings: Finding[], profile: TargetProfile, opts: { 
   const gaps = profile.skipped.length
   out.push(`- Coverage: ${profile.file_count} files scanned, ${gaps} not scanned${profile.truncated ? ', scan truncated' : ''}. See Coverage below.`)
   const links = profile.skipped.filter((x) => x.reason === 'symlink').length
-  if (links) out.push(`- **${links} symlink${links === 1 ? '' : 's'} (shortcuts to places outside the scan) were NOT followed.** Whatever they point to was not examined and may be a large share of your code.`)
+  if (links) out.push(`- **${links} symlink${links === 1 ? '' : 's'} ${links === 1 ? 'was' : 'were'} NOT followed.** Any that point outside the scanned folder were not examined, which may be a large share of your code; any that point inside it were examined at their real path. See Coverage.`)
   out.push('')
 
   if (opts.mode === 'pure-reasoning') {
