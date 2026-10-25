@@ -42,12 +42,13 @@ test('the plain section of an undisputed finding says nothing about doubt', () =
   expect(plain).not.toMatch(/agree|disput|contested|rated it lower/i)
 })
 
-test('a finding dropped after a dispute produces no plain doubt clause', () => {
-  expect(toMarkdown([droppedAfterDispute], profile, { mode: 'full' })).not.toMatch(/did not agree/i)
-})
-
-test('a finding dropped after a dispute is not listed and reports no disagreement', () => {
-  expect(toMarkdown([droppedAfterDispute], profile, { mode: 'full' })).not.toMatch(/disagreed/i)
+// Replaces two negative-only tests that passed whatever the dispute logic did: dropped findings are never rendered,
+// so "no doubt clause" could not fail. What can fail is the count line and the snippet staying out of the report.
+test('a finding dropped after a dispute is counted as disproved and its content is not listed', () => {
+  const md = toMarkdown([droppedAfterDispute], profile, { mode: 'full' })
+  expect(md).toContain('- 1 disproved by verification (not listed)')
+  expect(md).not.toContain(droppedAfterDispute.snippet)
+  expect(md).toContain('- Confirmed: 0')
 })
 
 const REASONS: SkipRecord['reason'][] = ['minified', 'vendored', 'generated', 'binary', 'too-large', 'not-utf8', 'not-regular', 'unreadable', 'symlink']

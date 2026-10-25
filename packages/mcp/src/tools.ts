@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import {
   DEPTH_TIERS,
   FindingsStore,
+  PolicyRefusal,
   attestationRefusal,
   loadAuthorization,
   KNOWN_LANGUAGES,
@@ -115,8 +116,11 @@ type State = {
   store: FindingsStore
   selections: Map<string, 'exact' | 'wildcard-only' | 'none'>
   rejected: number
+  /** Hunt ledger: domains plan_hunts assigned, and domains for which some agent reported an accepted finding. */
+  planned: Set<string>
+  reported: Set<string>
 }
-const fresh = (): Omit<State, 'target' | 'profile'> => ({ walked: new Set(), store: new FindingsStore(), selections: new Map(), rejected: 0 })
+const fresh = (): Omit<State, 'target' | 'profile'> => ({ walked: new Set(), store: new FindingsStore(), selections: new Map(), rejected: 0, planned: new Set(), reported: new Set() })
 
 // Same form the walker emits: '/' separators, no leading './' or empty segments. Case is NOT folded: the walker lists exact names,
 // and a case variant would become a different SARIF URI than the file Sentinel read.
@@ -180,7 +184,7 @@ export function createSession(opts: SessionOptions = {}): Session {
       try {
         return await fn(a)
       } catch (e) {
-        return fail(`Internal error: ${reason(e)}`)
+        return fail(e instanceof PolicyRefusal ? `Refused: ${e.message}` : `Internal error: ${reason(e)}`)
       }
     }
 
@@ -254,7 +258,10 @@ export function createSession(opts: SessionOptions = {}): Session {
       if (!state.profile || !state.target) return fail('No target has been profiled in this session. Call profile_target first.')
       const assignments = planHunts(state.profile, await loadIndex())
       // Same record select_techniques makes, so report has one coverage-warning path for both.
-      for (const a of assignments) state.selections.set(`the ${a.domain} domain`, a.coverage)
+      for (const a of assignments) {
+        state.selections.set(`the ${a.domain} domain`, a.coverage)
+        state.planned.add(a.domain)
+      }
       return ok({ registry_root: resolve(registryRoot), target_root: resolve(state.target.root), assignments, ...(registryErrors.length ? { registry_warning: registryWarning() } : {}) })
     }),
 
@@ -278,6 +285,7 @@ export function createSession(opts: SessionOptions = {}): Session {
         }
         try {
           accepted.push(state.store.add({ technique_id: v.technique_id, file, line: v.line, snippet: v.snippet }, { depth_tier: v.depth_tier, reachability: v.reachability, reporting_agent }))
+          state.reported.add(idx.techniques.find((t) => t.id === v.technique_id)!.domain) // known: checked above
         } catch (e) {
           rejected.push({ index: i, reason: reason(e) }) // the store's own contract check; still per finding
         }
@@ -319,6 +327,9 @@ export function createSession(opts: SessionOptions = {}): Session {
         if (match === 'none') warnings.push(`No techniques exist for ${what}: nothing was examined for it.`)
         else if (match === 'wildcard-only') warnings.push(`Only generic techniques exist for ${what}: partial coverage.`)
       }
+      // From the ledger, not the registry: `exact` coverage only means a technique exists, not that anyone hunted with it.
+      const silent = [...state.planned].filter((d) => !state.reported.has(d))
+      if (silent.length) warnings.push(`Planned but no agent reported: ${silent.join(', ')}. Sentinel does not know whether a hunter ran for these domains, so their silence is not a clean result.`)
       warnings.push(...stackInfo(profile).warnings)
       if (state.rejected) warnings.push(`${state.rejected} finding(s) were rejected at ingest and are NOT in this report.`)
 

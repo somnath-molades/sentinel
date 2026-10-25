@@ -56,6 +56,9 @@ const OUTCOMES: readonly string[] = ['confirmed', 'disproved', 'ambiguous']
 
 // Callers are untrusted agents: the store keeps its own records and only hands out deep copies,
 // so nobody can set status or erase a recorded disproof.
+/** A deliberate rule, not a fault: callers surface it as a refusal, never as an internal error. */
+export class PolicyRefusal extends Error {}
+
 export class FindingsStore {
   private readonly findings = new Map<string, Finding>()
 
@@ -102,7 +105,7 @@ export class FindingsStore {
     const f = this.findings.get(id)
     if (!f) throw new Error(`unknown finding: ${id}`)
     // Checked first so a self-verdict is refused whatever it claims; trimmed so padding cannot evade it.
-    if (f.reporting_agents.includes(canonicalAgentId(v.agent))) throw new Error(`reporting agent cannot verify its own finding: ${v.agent}`)
+    if (f.reporting_agents.includes(canonicalAgentId(v.agent))) throw new PolicyRefusal(`reporting agent cannot verify its own finding: ${v.agent}`)
     if (!OUTCOMES.includes(v.outcome)) throw new Error(`unknown verdict outcome: ${String(v.outcome)}`)
     // Untrusted input: every factor must be present and an integer 0..3, or a forged value could fake a critical.
     if (v.factors !== undefined && !(typeof v.factors === 'object' && v.factors !== null && FACTOR_KEYS.every((k) => [0, 1, 2, 3].includes(Reflect.get(v.factors!, k))))) {

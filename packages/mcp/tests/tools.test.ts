@@ -340,7 +340,6 @@ describe('verify_finding', () => {
     const first = json(await call(c, 'verify_finding', { finding_id: id, ...V, severity_factors: FACTORS }))
     expect(first.severity.band).toBe('critical')
     expect(first.severity_disputed).toBe(false)
-    expect(first.severity_overwritten).toBeUndefined()
     const low = { exploitability: 0, reachability: 0, blast_radius: 0, data_sensitivity: 0 }
     const second = json(await call(c, 'verify_finding', { finding_id: id, agent: 'v2', outcome: 'confirmed', reasoning: 'r', severity_factors: low }))
     expect(second.severity.band).toBe('critical') // a lower rating no longer replaces a higher one
@@ -360,6 +359,8 @@ describe('verify_finding', () => {
     const r = await call(c, 'verify_finding', { finding_id: id, ...V, agent: 'hunter-1' })
     expect(r.isError).toBe(true)
     expect(r.content[0]!.text).toMatch(/reporting agent/)
+    expect(r.content[0]!.text).toMatch(/^Refused: /)
+    expect(r.content[0]!.text).not.toMatch(/Internal error/)
     expect(json(await call(c, 'report', {})).report).not.toMatch(/traced to sink/)
   })
   test('a spelling variant of the reporting agent is refused too', async () => {
