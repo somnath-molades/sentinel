@@ -4,3 +4,5 @@ export { DEPTH_TIERS, techniqueSchema, parseTechnique } from './schema/technique
 export type { DepthTier, FixPattern, TechniqueEntry, SchemaError } from './schema/technique.js'
 export { packSchema } from './schema/pack.js'
 export type { PackManifest } from './schema/pack.js'
+export { resolveTarget } from './scope/resolve-target.js'
+export type { ResolvedTarget, ScopeRefusal, GhRunner } from './scope/resolve-target.js'
