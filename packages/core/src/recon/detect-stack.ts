@@ -92,6 +92,8 @@ function namesOf(file: string, text: string): string[] | null {
   return null
 }
 
+const FIXTURE_DIR = /(^|\/)(__)?fixtures(__)?\//
+
 const MANIFESTS = new Set(['package.json', 'requirements.txt', ...Object.keys(SUBSTRING)])
 export const isManifest = (path: string): boolean => MANIFESTS.has(basename(path))
 
@@ -111,6 +113,8 @@ export function detectStack(files: FileRecord[], manifests: ReadonlyMap<string, 
     if (name === '.gitlab-ci.yml') found.ci.add('gitlab-ci')
     if (name === 'Jenkinsfile') found.ci.add('jenkins')
 
+    // Test data is not the project's stack. shortcut: matched by directory name only, so a real app kept under a dir literally named "fixtures" is under-reported; upgrade if that bites.
+    if (FIXTURE_DIR.test(f.path)) continue
     const table = name === 'package.json' ? NPM : name === 'requirements.txt' ? PIP : SUBSTRING[name]
     if (!table) continue
     const text = manifests.get(f.path)

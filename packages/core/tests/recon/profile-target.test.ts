@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -35,6 +35,20 @@ test('generated_at is ISO 8601 and coverage fields flow through', async () => {
   expect(p.file_count).toBe(1)
   const t = await profileTarget({ kind: 'local', root: fixture('express-vulnerable') }, { maxFiles: 1 })
   expect(t.truncated).toBe(true)
+})
+
+// Sentinel's own repository holds fixture manifests (tests/fixtures/targets/*); they are test data, not the project's stack.
+test('manifests under fixture directories do not declare the target stack', async () => {
+  const root = await mkdtemp(join(await realpath(tmpdir()), 'sentinel-fx-'))
+  try {
+    await mkdir(join(root, 'tests/fixtures/app'), { recursive: true })
+    await writeFile(join(root, 'tests/fixtures/app/package.json'), JSON.stringify({ dependencies: { express: '4.0.0' } }))
+    await writeFile(join(root, 'package.json'), JSON.stringify({ dependencies: { fastify: '4.0.0' } }))
+    const p = await profileTarget({ kind: 'local', root })
+    expect(p.frameworks).toEqual(['fastify'])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 // Git cannot commit an empty directory, so this fixture is built in a temp dir; a committed one would silently not exist in a clone.
