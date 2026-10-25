@@ -41,6 +41,8 @@ function rateSeverity(verdicts: Verdict[]): Pick<Finding, 'severity' | 'severity
     for (const x of verdicts) if (x.factors) byAgent.set(canonicalAgentId(x.agent), { agent: x.agent, severity: computeSeverity(x.factors) })
   }
   const rated = [...byAgent.values()]
+  // The headline is the MAXIMUM band. markdown.ts tells readers "we show the highest rating" in plain
+  // language, so changing this selection rule turns that user-facing sentence into a lie. Keep them in step.
   const top = rated.reduce<Severity | undefined>(
     (best, r) => (!best || BAND_RANK[r.severity.band] > BAND_RANK[best.band] || (r.severity.band === best.band && r.severity.score > best.score) ? r.severity : best),
     undefined,
