@@ -24,7 +24,9 @@ function sentinel(args: string[], stdin = ''): Promise<{ code: number; stdout: s
 }
 
 test('scan is refused before init, then init and scan produce a report on a fixture target', async () => {
-  expect((await sentinel(['scan', express])).code).not.toBe(0)
+  const refused = await sentinel(['scan', express])
+  expect(refused.code).toBe(2)
+  expect(refused.stderr).toMatch(/Refused \(attestation\)/) // a missing build would fail differently
   expect((await sentinel(['init', express], 'yes\nno\n')).code).toBe(0)
   const { code, stdout } = await sentinel(['scan', express])
   expect(code).toBe(0)
@@ -38,4 +40,5 @@ test('Sentinel scans itself and the pipeline completes without a threshold', asy
   const { code, stdout } = await sentinel(['scan', root])
   expect(code).toBe(0)
   expect(stdout).toMatch(/## Coverage/)
+  expect(stdout).toMatch(/No hunter agents exist in this build/) // the single most important caveat the product emits
 }, 60_000)
