@@ -27,6 +27,16 @@ provenance:
 
 A declared dependency resolves to a version with a published advisory. Read the lockfile rather than the manifest: the manifest states a range, the lockfile states what is actually installed, and the two disagree often. Transitive dependencies matter as much as direct ones and only appear in the lockfile. An absent lockfile is itself a finding, because the installed version is then whatever the registry served most recently.
 
+Files to read, manifest first for intent and lockfile for truth:
+
+- node: `package.json` against `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` or `bun.lockb`
+- python: `pyproject.toml`, `requirements*.txt` or `Pipfile` against `poetry.lock`, `uv.lock`, `Pipfile.lock` or a pip-compiled `requirements.txt` with pinned versions and hashes
+- php: `composer.json` against `composer.lock`
+- go: `go.mod` against `go.sum`
+- generic: container base-image tags in a `Dockerfile`, and pinned action versions in CI workflow files, which are dependencies that no language lockfile covers
+
+Version-range markers in a manifest that mean the lockfile is the only source of truth: `^`, `~`, `>=`, `*`, `latest`, an unpinned `main` or branch reference for a git dependency, and a container tag such as `latest` or a bare major version.
+
 ## Verification
 
 Compare the resolved version in the lockfile against the advisory's affected range, not against the latest release — being behind is not the same as being vulnerable. Then check whether the vulnerable functionality is reachable: a parser flaw in a package used only by a build script that never sees untrusted input is a lower-priority finding than the same flaw in a request-handling path. Record both the resolved version and the advisory identifier so the conclusion can be rechecked later.

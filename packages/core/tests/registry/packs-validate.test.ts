@@ -105,6 +105,24 @@ test('every vendored pack appears in NOTICE', () => {
   }
 })
 
+// MIT and Apache-2.0 both require the licence text to travel with the content, so the
+// NOTICE pointer must resolve to a real file holding the upstream licence.
+test('every vendored pack has a NOTICE entry whose License-Text file exists', () => {
+  const notice = read(resolve(repoRoot, 'NOTICE'))
+  // Entry blocks only: the indented template lines are commented with a leading '#'.
+  const entries = notice.split(/\n\s*\n/).filter((b) => /^Pack: /m.test(b))
+  expect(entries.length).toBe(packs().filter((p) => p.ingestion_mode === 'vendored').length)
+  for (const p of packs().filter((x) => x.ingestion_mode === 'vendored')) {
+    const block = entries.find((b) => new RegExp(`^Pack:\\s+${p.id}$`, 'm').test(b))
+    expect(block, `no NOTICE entry for pack ${p.id}`).toBeDefined()
+    const licenseText = /^License-Text:\s+(\S+)$/m.exec(block ?? '')?.[1]
+    expect(licenseText, `${p.id}: NOTICE entry has no License-Text field`).toBeDefined()
+    expect(read(resolve(repoRoot, licenseText ?? '')).length).toBeGreaterThan(100)
+    expect(block).toMatch(/^Modified:\s+(yes|no)$/m)
+    expect(block).toMatch(/^Derivation:\s+(copied|inspired)$/m)
+  }
+})
+
 test('every pack has an audit row pinning the same commit', () => {
   const audit = read(resolve(repoRoot, 'registry/AUDIT.md'))
   for (const p of packs()) {

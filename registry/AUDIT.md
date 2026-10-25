@@ -76,22 +76,61 @@ recorded, but no content has been ingested yet. Only sources 2 and 8 were normal
 
 ## Packs normalized in this task
 
-Chosen for dissimilarity, as the brief requires:
+**What was and was not copied.** Both packs are `ingestion_mode: vendored`, which
+records a licensing determination: these licences permit copying, and `NOTICE`
+attributes them. It does not describe what happened. **No upstream text is reproduced
+in either pack.** Every `detection`, `verification`, `defensive_use` and
+`fix_patterns[].guidance` string was written for this registry. `upstream_commit`, in
+both `pack.yaml` files and in each entry's `provenance`, therefore pins *the commit
+that was read and audited* and against which the subject-matter mapping was made — not
+a commit text was taken from. `NOTICE` records this per pack as `Derivation: inspired`
+and `Modified: no`. The schema has no field for the distinction and none was invented;
+see requirement 27.
 
-- **`vbsec`** (source 2) — *skill-shaped markdown repository*. Knowledge lives in 22
-  hand-written markdown rule files under `skills/vbs-scan-security/rules/generic/`,
-  each with a tiny frontmatter block (`id`, `severity_max`, `applies_to`) and prose
-  sections. Prose is Vietnamese.
-- **`defending-code`** (source 8) — *tool-shaped repository*. A Python package
-  (`pyproject.toml`, `harness/`, `bin/`, `dnr_harness/`) implementing a scanning,
-  triage and patching pipeline, with the knowledge expressed as agent prompts and
-  skill procedure documents rather than per-vulnerability entries. Memory-safety and
-  reachability oriented; its unit of knowledge is a *workflow phase*, not a
-  *vulnerability class*.
+Chosen for dissimilarity, as the brief requires. Both characterisations below were
+re-verified against the pinned commit's git tree after a review challenged the
+original wording; the correction is noted where it applies.
 
-They stress the schema in opposite directions: `vbsec` has one upstream file per
-vulnerability class and no dataflow depth, `defending-code` has deep dataflow and
-reachability reasoning with no per-class decomposition at all.
+- **`vbsec`** (source 2) — *content decomposed per vulnerability class*. Knowledge
+  lives in hand-written markdown rule files, each with a tiny frontmatter block
+  (`id`, `severity_max`, `applies_to`) and prose sections. Prose is Vietnamese.
+  The layout is wider than first recorded: the skill is shipped three times, once
+  per target agent, as `skills/vbs-scan-security/`, `skills/antigravity/vbs-scan-security/`
+  and `skills/codex/vbs-scan-security/`. Each copy carries the same 22 generic rules
+  under `rules/generic/` — 66 generic rule files in the tree for 22 distinct rules —
+  plus per-language overlay files under `rules/languages/{dotnet,go,php,python,typescript}/`
+  that refine a subset of those rules. The nine entries in this pack map to nine of
+  the 22 generic rules. (The original audit named only
+  `skills/vbs-scan-security/rules/generic/`, which does exist at the pinned commit
+  and is the copy that was read, but presenting it as the whole layout understated
+  the duplication. See requirement 25.)
+- **`defending-code`** (source 8) — *content decomposed per pipeline phase*. A Python
+  package (`pyproject.toml`, `harness/`, `bin/`, `dnr_harness/`) implementing a
+  scanning, triage and patching pipeline, **and** — this was missing from the original
+  audit — a skill tree at `.claude/skills/` with one directory per phase
+  (`threat-model`, `vuln-scan`, `triage`, `patch`, `verify`, `dnr-hunt`,
+  `dnr-respond`, `customize`, `quickstart`), each holding a `SKILL.md` and sometimes
+  a `README.md` and supporting documents, plus thirteen operator documents under
+  `docs/`. So it is not "a tool with no markdown"; it is a hybrid.
+  What remains true is the decomposition: no file corresponds to a vulnerability
+  class. A vulnerability-class taxonomy does exist, but as a flat inline list inside
+  one prompt block of `.claude/skills/vuln-scan/SKILL.md`, grouped by triage value
+  (memory safety, injection and code execution, auth/crypto/data) and accompanied by
+  an explicit do-not-report list of known false positives. Memory-safety and
+  reachability oriented; its unit of knowledge is a *workflow phase*, with classes as
+  an inline checklist inside one of them.
+
+**Honest assessment of the dissimilarity.** The pair is less dissimilar than the
+original framing claimed. Both repositories ship agent skills as markdown, so the
+"markdown repository versus code repository" contrast was wrong. The contrast that
+does hold, and the one that actually taught something, is *how knowledge is
+decomposed*: `vbsec` has one file per vulnerability class and nothing above L1, while
+`defending-code` has deep dataflow and reachability reasoning organised by pipeline
+phase with classes reduced to an inline list. That is a real and useful difference —
+it is why extracting entries from `vbsec` was close to a mapping and extracting them
+from `defending-code` was an interpretation — but it is a narrower difference than
+"skill-shaped versus tool-shaped", and a future pack choice should be made on the
+decomposition axis rather than on whether the repository contains code.
 
 ## Normalizer requirements
 
@@ -165,13 +204,35 @@ tool must do, must ask about, or must refuse to do.
     covers reflected, stored and DOM XSS with different detection methods and different
     depth tiers. Splitting and merging are judgment calls. The normalizer must propose
     a mapping and have it approved, not emit one file per file.
-13. **Tool-shaped repositories have no per-class decomposition to map.**
-    `defending-code`'s knowledge is in `harness/*.py` and agent prompts organised by
-    *pipeline phase* (recon → scan → triage → patch), not by vulnerability class. There
-    is no file-to-entry correspondence to find. Extracting entries meant reading the
-    workflow and deciding which classes it implicitly reasons about — not a
-    transformation, an interpretation. A normalizer should detect this shape (no
-    one-file-per-finding structure) and decline to auto-extract.
+13. **Upstream decomposition may be by pipeline phase rather than by vulnerability
+    class, and the class taxonomy may be buried inside a prompt.** *Corrected after
+    review; the original wording of this item was wrong in a way that would have
+    misled the normalizer.* `defending-code` is organised by phase — `.claude/skills/`
+    has `threat-model`, `vuln-scan`, `triage`, `patch`, `verify` and more, each a
+    `SKILL.md` — alongside `harness/*.py` and `docs/`. It is not true, as this item
+    first claimed, that the knowledge is only in Python and prompts with no markdown
+    and no class taxonomy to find: `.claude/skills/vuln-scan/SKILL.md` contains a flat
+    class list (memory safety, injection and code execution, auth/crypto/data) inside
+    the review-brief prompt block. What *is* true is that no **file** corresponds to a
+    class, so there is no file-to-entry correspondence; the taxonomy must be extracted
+    from inside a fenced prompt block in one file of one phase.
+    The normalizer must therefore detect the decomposition axis explicitly — per-class
+    files, or per-phase procedures with an inline taxonomy — and must not infer
+    "no taxonomy present" from "no per-class files present". For the per-phase shape it
+    may extract the inline class list as *candidate* entry subjects, but the entry
+    bodies remain an interpretation of the workflow rather than a transformation of a
+    source file, so it must still decline to auto-author and hand the candidates to a
+    human.
+    A corollary that was not visible before reading the prompt block: upstream encodes
+    **negative** knowledge our schema cannot hold at all. `vuln-scan`'s brief carries
+    an explicit do-not-report list of known false positives — volumetric denial of
+    service, memory-safety findings in memory-safe languages outside unsafe blocks,
+    XSS in a framework that escapes by default unless a raw-HTML escape hatch is used,
+    findings in test files and build scripts, operator-controlled environment
+    variables as an attack vector. `techniqueSchema` has no field for "do not report
+    when", so that knowledge is dropped on ingest. The normalizer must report what it
+    drops; whether the schema should gain a suppression field is a question for a later
+    task, not something to invent during ingest.
 14. **`fix_patterns[].stack` is an open string, so it will drift.** Nothing stops
     `node`, `nodejs`, `javascript` and `js` from all appearing. Upstream groups rules
     by language inconsistently (`applies_to: all`, plus per-language search-pattern
@@ -203,6 +264,36 @@ tool must do, must ask about, or must refuse to do.
     The resulting error points at a column in the frontmatter, not at the sentence.
     A normalizer must serialize frontmatter with a real YAML emitter that quotes or
     block-folds as needed, never by string-templating the values into place.
+25. **The same rule appears many times in one repository, and the normalizer must pick
+    a canonical copy.** `vbsec` ships its skill once per target agent —
+    `skills/vbs-scan-security/`, `skills/antigravity/vbs-scan-security/`,
+    `skills/codex/vbs-scan-security/` — so its 22 generic rules appear as 66 files, and
+    `rules/languages/{dotnet,go,php,python,typescript}/` adds per-language overlays
+    that reuse the same rule numbers (`02-sql-injection.md` exists in six places). A
+    normalizer that walks the tree for `*.md` and emits an entry per file would produce
+    three to nine duplicates of every rule, each passing the schema and colliding on
+    `id`. It must detect agent-variant directories (sibling directories with identical
+    relative file sets), choose one canonical variant and record which, and treat a
+    language overlay as *additional `stacks` and `fix_patterns` on the generic rule*
+    rather than as a separate entry. The registry-wide `id` collision check (item 18)
+    is what catches a failure here, so it is a prerequisite, not a nicety.
+26. **Licence obligations must be materialised at ingest, not just referenced.** Both
+    licences here require more than a copyright line once content is actually copied:
+    MIT requires its permission notice to accompany substantial portions, and
+    Apache-2.0 section 4 requires the licence text, retention of attribution notices,
+    the contents of any upstream `NOTICE`, and a statement of changes. The normalizer
+    must copy the upstream licence text into `registry/licenses/<pack>.txt`, copy any
+    upstream `NOTICE` verbatim (neither of these two upstreams has one, which is itself
+    a fact worth recording rather than leaving blank), and fill the `Modified` line
+    from whether it altered what it copied. A pointer to a licence file that does not
+    exist is worse than no pointer, so the ingest must fail if the file is missing.
+27. **"Permitted to vendor" and "actually copied" are different facts and both must be
+    recorded.** `packSchema.ingestion_mode` records the licence determination only. The
+    `NOTICE` `Derivation:` line records what happened — `copied` or `inspired`. Keeping
+    them separate matters because a later phase that treats `upstream_commit` as "the
+    commit this text came from" would be wrong for an `inspired` pack, where the commit
+    records what was *read and audited*, not what was reproduced. The normalizer must
+    set `Derivation` from its own behaviour, never default it.
 
 ### Content safety
 

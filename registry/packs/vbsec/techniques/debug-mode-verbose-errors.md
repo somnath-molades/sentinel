@@ -24,6 +24,16 @@ provenance:
 
 A debug or development setting is enabled unconditionally in committed configuration, or an error path returns internal detail to the caller. Typical shapes: a framework debug flag set to a literal true, a stack trace or exception message serialized into the HTTP response body, a directory listing or interactive debugger left enabled, or a verbose logger configured to write request bodies containing credentials.
 
+Named settings and sinks to search for:
+
+- python: `DEBUG = True` in Django settings, `app.run(debug=True)` and `app.debug = True` in Flask, `FastAPI(debug=True)`, and Werkzeug's interactive debugger enabled with the evaluating console
+- php: `display_errors` set on, `error_reporting(E_ALL)` paired with display, `APP_DEBUG=true` in a committed Laravel `.env`, and Symfony's `APP_ENV=dev`
+- node: `NODE_ENV` not set to `production` where the framework keys error verbosity off it, Express's default error handler returning `err.stack`, and an error middleware that puts `err.message` or `err.stack` in the response body
+- go: `gin.SetMode(gin.DebugMode)`, and `http.Error(w, err.Error(), ...)` which writes the raw error text to the client
+- generic: `JSON.stringify(err)` or an equivalent serialization of an exception object into a response; a directory-listing option enabled on a static file handler; a profiler, metrics or admin endpoint mounted without authentication
+
+The distinction that decides the finding: whether the flag's value is a literal, or read from the environment with a secure default.
+
 ## Verification
 
 Determine whether the setting is literal or environment-driven. A literal true is a finding; a value read from the environment shifts the question to deployment configuration, which the code alone cannot answer — say so rather than guessing. For error echoing, read from the exception handler back to the response serializer and confirm that the exception's own message or trace, rather than a fixed string, reaches the response.

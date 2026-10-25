@@ -27,6 +27,15 @@ provenance:
 
 A payload that arrived from outside — a request body, a cookie, a cache or queue entry, an uploaded file — is handed to a deserializer that reconstructs objects rather than parsing plain data. The distinction is the capability of the parser, not the format: loaders that can instantiate classes named in the payload, invoke constructors or run reducer hooks are in scope, while a JSON parser producing plain values is not.
 
+Named loaders to search for:
+
+- python: `pickle.load`, `pickle.loads`, `cPickle.loads`, `dill.loads`, `shelve.open`, `yaml.load` **without** a safe loader argument, `yaml.unsafe_load`, `yaml.full_load`, `jsonpickle.decode`, `torch.load` with weights-only loading disabled, and `numpy.load` with pickle allowed
+- php: `unserialize` on request-derived input, and Laravel's `decrypt`/`unserialize` combination on a cookie payload
+- node: `node-serialize`'s `unserialize`, `serialize-javascript` output passed back through an evaluator, `js-yaml`'s `load` on versions where it defaulted to the unsafe schema, and any custom reviver that constructs classes by a name taken from the payload
+- java: `ObjectInputStream.readObject`, `XMLDecoder.readObject`, and `XStream.fromXML` without a type allowlist
+
+The paired safe forms: `json.loads` and `JSON.parse`, `yaml.safe_load` or `yaml.load(data, Loader=yaml.SafeLoader)`, `js-yaml`'s default safe schema on current versions, `torch.load` with weights-only loading enabled, and any of the above constrained by an explicit permitted-class list.
+
 ## Verification
 
 Identify which loader variant is called, since libraries commonly ship both a safe and an object-reconstructing entry point and the names differ by very little. Trace the payload to its origin and check whether anything authenticates it before parsing — a signature verified with a server-held key removes the untrusted property, while base64 encoding or compression does not. If the loader accepts a class allowlist, check whether one is supplied and whether it is actually restrictive.

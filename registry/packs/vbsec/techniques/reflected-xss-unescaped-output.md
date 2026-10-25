@@ -27,6 +27,16 @@ provenance:
 
 A value that came from the request is written into a response document without escaping for the context it lands in. On the server this is a template rendered with the engine's raw or unescaped marker, or a response body assembled by string concatenation and sent with an HTML content type. On the client it is an assignment to an API that parses its input as markup rather than setting text.
 
+Named sinks to search for:
+
+- browser DOM: `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `document.writeln`, `Range.createContextualFragment`, `DOMParser.parseFromString` followed by insertion, and `eval`, `setTimeout` or `setInterval` given a string
+- react: `dangerouslySetInnerHTML`, and an `href` or `src` prop assigned a request-derived value that may carry a script scheme
+- vue: `v-html`; angular: `bypassSecurityTrustHtml` and the other `bypassSecurityTrust*` calls
+- server templates: Jinja2's `|safe` and `Markup()`, Django's `|safe` and `mark_safe`, Handlebars' and Mustache's triple-brace form, EJS's `<%-`, Go's `template.HTML` conversion, Twig's `|raw`, Blade's `{!! !!}`, and PHP's `echo` of request data into markup
+- framework-level: a response written with an HTML content type and a body assembled by concatenation rather than rendered through a template
+
+The paired safe forms worth recognising: `textContent` and `innerText`, React's and Vue's default interpolation, and the double-brace or `<%=` escaping form of each template engine. In a framework that escapes by default, a finding is only real through one of the escape hatches listed above; absent one, do not report it.
+
 ## Verification
 
 Read from the sink backwards to the value's origin and confirm it is request-derived. Then determine the context precisely: text node, attribute value, URL attribute, inline script, or style — because the correct escaping differs for each and a value escaped for the wrong one is still exploitable. Check whether any sanitization is a maintained allowlist sanitizer or an ad-hoc pattern replacement, and note the difference, as pattern replacement is routinely bypassable.

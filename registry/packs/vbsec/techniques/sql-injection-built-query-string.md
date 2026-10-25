@@ -27,6 +27,15 @@ provenance:
 
 A SQL statement is assembled as a string with a variable spliced into it — by concatenation, template literal, format call or percent interpolation — and the finished string is handed to a database execute or query call. The telling detail is argument shape: one string argument where the driver also offers a statement-plus-values form.
 
+Named sinks to search for, each where the first argument is an assembled string rather than a statement with placeholders:
+
+- node: `connection.query`, `pool.query`, `client.query`, `db.run`, `db.all`, `db.get`, `sequelize.query`, `knex.raw`, `prisma.$queryRawUnsafe`, `prisma.$executeRawUnsafe`, `entityManager.query`
+- python: `cursor.execute`, `cursor.executemany`, `connection.execute`, `Model.objects.raw`, `Model.objects.extra`, `sqlalchemy.text`, `session.execute`
+- php: `mysqli_query`, `mysqli::query`, `PDO::query`, `PDO::exec`, `pg_query`, and `DB::select` / `DB::statement` / `whereRaw` / `selectRaw` in Laravel
+- go: `db.Query`, `db.QueryRow`, `db.Exec`, `tx.Query`, `tx.Exec`, and `gorm`'s `Raw` and `Exec`
+
+The paired safe forms worth recognising so they are not flagged: a second argument carrying the values (`query(sql, values)`, `execute(sql, params)`), placeholder markers `?`, `$1`, `%s` or `:name` inside the statement, and Prisma's `$queryRaw` tagged-template form, which parameterises its interpolations.
+
 ## Verification
 
 Read the function containing the call and determine where the interpolated variable comes from. Trace it back to a request parameter, body field, header, or an earlier database read whose value originated from a user. If it resolves to a constant, an enumeration member or a value already validated against a fixed set, the construct is ugly but not exploitable — say which. Also confirm nothing binds the value on the way: a parameter marker present elsewhere in the same statement does not protect the interpolated fragment.

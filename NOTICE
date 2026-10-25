@@ -3,31 +3,53 @@
 Sentinel
 Licensed under the MIT License (see LICENSE).
 
-This project includes technique knowledge normalized from the open-source
-projects listed below. Each entry gives the source URL, its license, and the
-upstream commit the content was taken from. Entries are added as upstream
-packs are vendored.
+This project builds technique knowledge on the open-source projects listed
+below. Each entry gives the source URL, its license, the full license text
+carried in this repository, the upstream commit the pack was built against,
+whether the content was modified, and how it was derived. Entries are added
+as upstream packs are vendored.
 
 Vendored upstream content:
 
-Each entry below follows this format. Append one block per vendored pack, in
-the same shape, separated by a blank line. Lines beginning with "#" are
-comments and are not entries.
+Each entry below follows the format shown here. Append one block per vendored
+pack, in the same shape, separated by a blank line. The indented block is a
+template, not an entry; the "#" prefix marks it as such.
 
-    # Pack:      <registry pack id, matching registry/packs/<id>/pack.yaml>
-    # Source:    <upstream repository URL>
-    # License:   <SPDX identifier, as read from the upstream LICENSE file>
-    # Copyright: <copyright holder, as named in that LICENSE file>
-    # Commit:    <full upstream commit SHA the content was taken from>
+    # Pack:         <registry pack id, matching registry/packs/<id>/pack.yaml>
+    # Source:       <upstream repository URL>
+    # License:      <SPDX identifier, as read from the upstream LICENSE file>
+    # Copyright:    <copyright holder, as named in that LICENSE file>
+    # License-Text: <path in this repository to the verbatim upstream license>
+    # Upstream-Notice: <path to the verbatim upstream NOTICE, or "none in upstream">
+    # Commit:       <full upstream commit SHA the pack was built against>
+    # Modified:     <yes | no — whether upstream content is reproduced altered>
+    # Derivation:   <copied | inspired — see the note below>
 
-Pack:      vbsec
-Source:    https://github.com/tanviet12/vbsec
-License:   MIT
-Copyright: Copyright (c) 2026 Bùi Tấn Việt
-Commit:    1b86c27936d350d1a9ca67f044341262d4219d4e
+Derivation values. "copied" means upstream text is reproduced in this
+repository, verbatim or modified; the license's conditions on redistribution
+apply, and for Apache-2.0 the statement of changes required by section 4(b)
+belongs on the "Modified" line and in the pack's own entries. "inspired" means
+no upstream text is reproduced: the entries are written for this registry and
+the upstream is credited as the source of the subject matter and as the reason
+the pack exists. Both are recorded here, because an "inspired" pack still
+names the upstream and still pins the commit it was built against.
 
-Pack:      defending-code
-Source:    https://github.com/anthropics/defending-code-reference-harness
-License:   Apache-2.0
-Copyright: Copyright 2026 Anthropic PBC
-Commit:    d3bea6b5793b5f3d59a75ebe69a58efa88383145
+Pack:         vbsec
+Source:       https://github.com/tanviet12/vbsec
+License:      MIT
+Copyright:    Copyright (c) 2026 Bùi Tấn Việt
+License-Text: registry/licenses/vbsec.txt
+Upstream-Notice: none in upstream
+Commit:       1b86c27936d350d1a9ca67f044341262d4219d4e
+Modified:     no
+Derivation:   inspired
+
+Pack:         defending-code
+Source:       https://github.com/anthropics/defending-code-reference-harness
+License:      Apache-2.0
+Copyright:    Copyright 2026 Anthropic PBC
+License-Text: registry/licenses/defending-code.txt
+Upstream-Notice: none in upstream
+Commit:       d3bea6b5793b5f3d59a75ebe69a58efa88383145
+Modified:     no
+Derivation:   inspired

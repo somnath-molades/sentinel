@@ -27,6 +27,15 @@ provenance:
 
 A committed configuration file grants an automated actor more authority than its task needs. In agent and skill configuration this is an unconstrained shell or write permission where the workflow only ever runs a handful of read-only commands. In continuous integration it is a job that inherits write-scoped credentials for every operation when it only reads the repository. Both are single-file, grep-visible findings: the declaration is the evidence.
 
+Named files and settings to search for:
+
+- agent configuration: `allowed-tools` in a skill's frontmatter, and `permissions.allow` in `.claude/settings.json` or `.claude/settings.local.json` — the over-broad values are a bare `Bash`, a wildcard `Bash(*)`, or `Bash(<cmd>:*)` for a command that writes, where the workflow only enumerates and reads
+- GitHub Actions: an absent top-level `permissions:` block, so the repository or organization default applies; `permissions: write-all`; `contents: write`, `packages: write` or `id-token: write` granted at workflow level rather than on the one job that needs it; `pull_request_target` or `workflow_run` triggers combined with a checkout of untrusted code; `secrets: inherit` on a reusable-workflow call; and an action referenced by a mutable tag rather than a commit SHA
+- container and runtime: `privileged: true`, `--cap-add`, a host path mounted read-write, and a service account bound to a cluster-wide admin role
+- cloud policy documents: a statement with `"Action": "*"` or `"Resource": "*"`, or a wildcard on a service prefix
+
+The comparison that decides the finding is the declared set against the invocations actually present in the same tree; a declaration is a filter on what is permitted, never a record of what is used.
+
 ## Verification
 
 Read the declared permission set against the operations the code actually performs, in the same tree. An unconstrained shell permission beside a workflow whose steps are all enumeration and search is over-broad; the same permission beside steps that build and publish is not. Note explicitly that a permission list is a filter on what is allowed, not a statement of what is used — so the comparison has to be made against the invocations, and the absence of a declaration means the platform default applies, which must be looked up rather than assumed restrictive.

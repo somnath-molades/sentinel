@@ -27,6 +27,15 @@ provenance:
 
 Bytes are copied into a fixed-size stack or struct buffer with a length that comes from the input rather than from the destination's capacity. Shapes: a copy whose bound is the source length, a length field read from a parsed header and trusted, an index or offset arithmetic expression used without a range check, or a loop that terminates on a sentinel in attacker-controlled data.
 
+Named sinks to search for:
+
+- unbounded by construction, with no length parameter at all: `strcpy`, `strcat`, `sprintf`, `vsprintf`, `gets`, `scanf` and `sscanf` with a bare `%s` conversion
+- bounded by a parameter that is often the wrong value: `memcpy`, `memmove`, `strncpy`, `strncat`, `snprintf`, `bcopy`, `CopyMemory` — the finding is a length argument derived from the source or from parsed input rather than from `sizeof(dst)`
+- allocation and indexing: `alloca` and a variable-length array with an untrusted size, `malloc` or `realloc` with a size expression that can wrap, and a pointer or array index computed from input without a range check
+- C++ specifically: `std::vector::operator[]` and `std::array::operator[]` with an unchecked index (`at()` is the checked form), `std::memcpy` into `data()`, `reinterpret_cast` of a buffer to a struct pointer without a length check, and `std::string::copy` with a caller-supplied count
+
+The arithmetic patterns that make a present bound check insufficient: `len + header_size` where the sum can wrap; a length held in a signed type and compared against an unsigned capacity; a difference of two pointers or offsets that can go negative; and a multiplication of a count by an element size with no overflow check.
+
 ## Verification
 
 Read the destination's declared size and the expression used as the copy bound, and decide whether the bound is derived from the destination or from the input. Check the arithmetic for wrapping: a length plus a header size can overflow to a small value that passes a comparison, and a signed length compared against an unsigned capacity promotes in a way that admits negative values. Confirm the parsed length is not validated against the actual remaining input size earlier in the function, which is the common case where the construct turns out to be safe.

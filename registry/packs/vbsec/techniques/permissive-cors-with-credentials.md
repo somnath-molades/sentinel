@@ -24,6 +24,14 @@ provenance:
 
 The CORS configuration pairs a permissive origin with credentialed requests. Two shapes carry the risk: the allowed origin is the wildcard while the credentials flag is also enabled, or — more commonly, because the wildcard plus credentials combination is rejected by browsers — the server reads the request's own `Origin` header and echoes it back as the allowed origin, which allows any site while satisfying the browser's rule. Over-broad matching counts too: a check that accepts any origin merely *containing* the company domain accepts an attacker-registered lookalike.
 
+Named settings and sinks to search for:
+
+- headers written directly: `Access-Control-Allow-Origin` set to `*`, or set from `req.headers.origin`, `request.headers.get("Origin")`, `$_SERVER['HTTP_ORIGIN']` or `r.Header.Get("Origin")`; paired with `Access-Control-Allow-Credentials: true`
+- node: the `cors` middleware configured with `origin: true`, `origin: "*"`, a reflecting `origin` callback, or a loosely matched regular-expression `origin`, together with `credentials: true`
+- python: `CORS_ALLOW_ALL_ORIGINS = True` or `CORS_ORIGIN_ALLOW_ALL = True` in django-cors-headers with `CORS_ALLOW_CREDENTIALS = True`; FastAPI's `CORSMiddleware` with `allow_origins=["*"]` or `allow_origin_regex` plus `allow_credentials=True`
+- php: a `header('Access-Control-Allow-Origin: ' . $_SERVER['HTTP_ORIGIN'])` call, and Laravel's `cors.php` with `allowed_origins` set to `*` and `supports_credentials` true
+- bypassable matching to look for in any of the above: `startsWith`, `endsWith`, `includes`, `in`, `strpos`, or a regular expression with an unanchored or unescaped domain
+
 ## Verification
 
 Read the origin decision itself. If the allowed-origin value derives from the incoming request in any way, the allowlist is not an allowlist. Check how the match is done — substring and `endsWith` checks against a domain are bypassable by registering a domain with that suffix, while an exact set membership test is not. Then confirm credentials are actually in play: look for the credentials flag being enabled, or for session authentication by cookie, since without credentials the misconfiguration leaks much less.
