@@ -3,6 +3,7 @@ id: cross-file-taint-source-to-sink
 vuln_classes: [taint-flow, injection]
 cwe: [CWE-20, CWE-74]
 depth_tier: L2
+domain: injection
 stacks: [node, python, go, generic]
 fix_patterns:
   - stack: generic

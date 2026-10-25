@@ -3,6 +3,7 @@ id: sql-injection-built-query-string
 vuln_classes: [sql-injection]
 cwe: [CWE-89]
 depth_tier: L1
+domain: injection
 stacks: [node, python, php, go]
 fix_patterns:
   - stack: node

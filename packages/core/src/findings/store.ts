@@ -1,8 +1,8 @@
 import type { DepthTier } from '../schema/technique.js'
 import { fingerprint, type FindingInput } from './fingerprint.js'
-import { BAND_RANK, type Severity } from './severity.js'
+import { BAND_RANK, computeSeverity, type Severity, type SeverityFactors } from './severity.js'
 
-export type Verdict = { agent: string; outcome: 'confirmed' | 'disproved' | 'ambiguous'; reasoning: string }
+export type Verdict = { agent: string; outcome: 'confirmed' | 'disproved' | 'ambiguous'; reasoning: string; factors?: SeverityFactors }
 export type Finding = FindingInput & {
   id: string
   status: 'candidate' | 'confirmed' | 'dropped' | 'needs-review'
@@ -11,9 +11,15 @@ export type Finding = FindingInput & {
   verdicts: Verdict[]
   // Other (line, reachability) pairs from duplicate reports, so dedupe collapses the report, not the evidence.
   additional_locations: { line: number; reachability: string }[]
+  // Every agent that reported this defect (dedupe merges reports), so none of them may verify it.
+  reporting_agents: string[]
+  // Highest band among the verifiers' ratings; each verifier's own rating stays visible in severity_by_agent.
   severity?: Severity
+  severity_disputed: boolean
+  severity_by_agent: { agent: string; severity: Severity }[]
 }
-export type AddMeta = { depth_tier: DepthTier; reachability: string }
+// reporting_agent lives here, not on FindingInput: it must not feed the fingerprint, or dedupe would stop collapsing.
+export type AddMeta = { depth_tier: DepthTier; reachability: string; reporting_agent: string }
 
 // Hard verification gate (spec 6.2): disproved > ambiguous > confirmed. Recomputed from
 // all verdicts, so arrival order can never matter.
@@ -24,19 +30,50 @@ function statusFrom(verdicts: Verdict[]): Finding['status'] {
   return 'candidate'
 }
 
+// One definition for storing and checking agent ids, so spelling variants of one id are one agent.
+const canonicalAgentId = (id: string): string => id.normalize('NFKC').trim().toLowerCase()
+
+// One rating per agent (a later verdict replaces that agent's earlier one, so revising is not a dispute with oneself).
+// A dropped finding carries no severity at all, whoever disproved it and in whatever order (same rule as statusFrom).
+function rateSeverity(verdicts: Verdict[]): Pick<Finding, 'severity' | 'severity_disputed' | 'severity_by_agent'> {
+  const byAgent = new Map<string, { agent: string; severity: Severity }>()
+  if (statusFrom(verdicts) !== 'dropped') {
+    for (const x of verdicts) if (x.factors) byAgent.set(canonicalAgentId(x.agent), { agent: x.agent, severity: computeSeverity(x.factors) })
+  }
+  const rated = [...byAgent.values()]
+  // The headline is the MAXIMUM band. markdown.ts tells readers "we show the highest rating" in plain
+  // language, so changing this selection rule turns that user-facing sentence into a lie. Keep them in step.
+  const top = rated.reduce<Severity | undefined>(
+    (best, r) => (!best || BAND_RANK[r.severity.band] > BAND_RANK[best.band] || (r.severity.band === best.band && r.severity.score > best.score) ? r.severity : best),
+    undefined,
+  )
+  return { ...(top ? { severity: top } : {}), severity_disputed: new Set(rated.map((r) => r.severity.band)).size > 1, severity_by_agent: rated }
+}
+
+const FACTOR_KEYS = ['exploitability', 'reachability', 'blast_radius', 'data_sensitivity'] as const
+
 const OUTCOMES: readonly string[] = ['confirmed', 'disproved', 'ambiguous']
 
 // Callers are untrusted agents: the store keeps its own records and only hands out deep copies,
 // so nobody can set status or erase a recorded disproof.
+/** A deliberate rule, not a fault: callers surface it as a refusal, never as an internal error. */
+export class PolicyRefusal extends Error {}
+
 export class FindingsStore {
   private readonly findings = new Map<string, Finding>()
 
   add(input: FindingInput, meta: AddMeta): Finding {
     if (!meta.reachability.trim()) throw new Error('reachability must be a non-empty reason')
     if (!input.snippet.trim()) throw new Error('snippet must not be empty')
+    const reporter = canonicalAgentId(meta.reporting_agent)
+    if (!reporter) throw new Error('reporting_agent must be a non-empty agent id')
     const id = fingerprint(input)
     const existing = this.findings.get(id)
     if (existing) {
+      if (existing.verdicts.some((x) => canonicalAgentId(x.agent) === reporter)) {
+        throw new Error(`agent ${reporter} already holds a verdict on this finding and cannot report it`)
+      }
+      if (!existing.reporting_agents.includes(reporter)) existing.reporting_agents.push(reporter)
       const seen = (l: { line: number; reachability: string }): boolean =>
         l.line === input.line && l.reachability === meta.reachability
       if (!seen(existing) && !existing.additional_locations.some(seen)) {
@@ -56,6 +93,9 @@ export class FindingsStore {
       status: 'candidate',
       verdicts: [],
       additional_locations: [],
+      reporting_agents: [reporter],
+      severity_disputed: false,
+      severity_by_agent: [],
     }
     this.findings.set(id, finding)
     return structuredClone(finding)
@@ -64,9 +104,17 @@ export class FindingsStore {
   recordVerdict(id: string, v: Verdict): Finding {
     const f = this.findings.get(id)
     if (!f) throw new Error(`unknown finding: ${id}`)
+    // Checked first so a self-verdict is refused whatever it claims; trimmed so padding cannot evade it.
+    if (f.reporting_agents.includes(canonicalAgentId(v.agent))) throw new PolicyRefusal(`reporting agent cannot verify its own finding: ${v.agent}`)
     if (!OUTCOMES.includes(v.outcome)) throw new Error(`unknown verdict outcome: ${String(v.outcome)}`)
-    f.verdicts.push({ agent: v.agent, outcome: v.outcome, reasoning: v.reasoning })
+    // Untrusted input: every factor must be present and an integer 0..3, or a forged value could fake a critical.
+    if (v.factors !== undefined && !(typeof v.factors === 'object' && v.factors !== null && FACTOR_KEYS.every((k) => [0, 1, 2, 3].includes(Reflect.get(v.factors!, k))))) {
+      throw new Error('invalid severity factors: exploitability, reachability, blast_radius and data_sensitivity must each be an integer 0..3')
+    }
+    f.verdicts.push({ agent: v.agent, outcome: v.outcome, reasoning: v.reasoning, ...(v.factors ? { factors: structuredClone(v.factors) } : {}) })
     f.status = statusFrom(f.verdicts)
+    delete f.severity
+    Object.assign(f, rateSeverity(f.verdicts))
     return structuredClone(f)
   }
 

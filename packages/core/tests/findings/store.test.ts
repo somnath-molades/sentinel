@@ -1,35 +1,36 @@
-import { FindingsStore, decideExitCode, type Finding, type Severity } from '@sentinel/core'
+import { FindingsStore, decideExitCode, type Finding, type Severity, type SeverityFactors } from '@sentinel/core'
 
 const base = { technique_id: 'sqli', file: 'a.ts', line: 40, snippet: 'query(a + b)' }
 const meta = { depth_tier: 'L1' as const, reachability: 'handler reads req.body' }
+const m = { ...meta, reporting_agent: 'hunter-0' }
 const v = (outcome: 'confirmed' | 'disproved' | 'ambiguous', agent = 'v1') => ({ agent, outcome, reasoning: 'r' })
 
 test('adding the same defect twice yields one finding', () => {
   const s = new FindingsStore()
-  const a = s.add(base, meta)
-  const b = s.add({ ...base, line: 41 }, meta)
+  const a = s.add(base, m)
+  const b = s.add({ ...base, line: 41 }, m)
   expect(b.id).toBe(a.id)
   expect(s.list()).toHaveLength(1)
 })
 test('a finding starts as candidate and keeps its meta', () => {
-  const f = new FindingsStore().add(base, meta)
+  const f = new FindingsStore().add(base, m)
   expect(f).toMatchObject({ status: 'candidate', ...meta })
 })
 test('a confirming verdict promotes to confirmed', () => {
   const s = new FindingsStore()
-  expect(s.recordVerdict(s.add(base, meta).id, v('confirmed')).status).toBe('confirmed')
+  expect(s.recordVerdict(s.add(base, m).id, v('confirmed')).status).toBe('confirmed')
 })
 test('a disproving verdict drops the finding', () => {
   const s = new FindingsStore()
-  expect(s.recordVerdict(s.add(base, meta).id, v('disproved')).status).toBe('dropped')
+  expect(s.recordVerdict(s.add(base, m).id, v('disproved')).status).toBe('dropped')
 })
 test('an ambiguous verdict yields needs-review, never confirmed', () => {
   const s = new FindingsStore()
-  expect(s.recordVerdict(s.add(base, meta).id, v('ambiguous')).status).toBe('needs-review')
+  expect(s.recordVerdict(s.add(base, m).id, v('ambiguous')).status).toBe('needs-review')
 })
 test('a disproving verdict after a confirming one wins', () => {
   const s = new FindingsStore()
-  const { id } = s.add(base, meta)
+  const { id } = s.add(base, m)
   s.recordVerdict(id, v('confirmed'))
   expect(s.recordVerdict(id, v('disproved', 'v2')).status).toBe('dropped')
 })
@@ -41,32 +42,100 @@ test('precedence holds for every ordering of the three outcomes', () => {
   ] as const
   for (const o of orders) {
     const s = new FindingsStore()
-    const { id } = s.add(base, meta)
+    const { id } = s.add(base, m)
     o.forEach((x) => s.recordVerdict(id, v(x)))
     expect(s.get(id)?.status).toBe('dropped')
   }
   const s = new FindingsStore()
-  const { id } = s.add(base, meta)
+  const { id } = s.add(base, m)
   s.recordVerdict(id, v('confirmed'))
   expect(s.recordVerdict(id, v('ambiguous', 'v2')).status).toBe('needs-review')
 })
 test('re-adding a verdicted finding does not reset it', () => {
   const s = new FindingsStore()
-  const { id } = s.add(base, meta)
+  const { id } = s.add(base, m)
   s.recordVerdict(id, v('disproved'))
-  expect(s.add({ ...base, snippet: '  query(a   +   b) ' }, meta).status).toBe('dropped')
+  expect(s.add({ ...base, snippet: '  query(a   +   b) ' }, m).status).toBe('dropped')
 })
 test('list filters by status; unknown id throws', () => {
   const s = new FindingsStore()
-  s.recordVerdict(s.add(base, meta).id, v('confirmed'))
-  s.add({ ...base, file: 'b.ts' }, meta)
+  s.recordVerdict(s.add(base, m).id, v('confirmed'))
+  s.add({ ...base, file: 'b.ts' }, m)
   expect(s.list({ status: 'confirmed' })).toHaveLength(1)
   expect(s.list({ status: 'candidate' })).toHaveLength(1)
   expect(() => s.recordVerdict('nope', v('confirmed'))).toThrow()
 })
 
+describe('reporting agent identity', () => {
+  test('add requires a non-blank reporting agent', () => {
+    expect(() => new FindingsStore().add(base, { ...meta, reporting_agent: '  ' })).toThrow(/reporting_agent/)
+  })
+  test('the reporting agent cannot confirm its own finding', () => {
+    const s = new FindingsStore()
+    const f = s.add(base, { ...meta, reporting_agent: 'hunter-1' })
+    expect(() => s.recordVerdict(f.id, v('confirmed', 'hunter-1'))).toThrow(/reporting agent/)
+    expect(s.get(f.id)).toMatchObject({ status: 'candidate', verdicts: [] })
+  })
+  test('a different agent can confirm it', () => {
+    const s = new FindingsStore()
+    const f = s.add(base, { ...meta, reporting_agent: 'hunter-1' })
+    expect(s.recordVerdict(f.id, v('confirmed', 'verifier-1')).status).toBe('confirmed')
+  })
+  test('a second reporter of a deduped finding also cannot confirm it', () => {
+    const s = new FindingsStore()
+    const f = s.add(base, { ...meta, reporting_agent: 'hunter-1' })
+    s.add({ ...base, line: 41 }, { ...meta, reporting_agent: 'hunter-2' })
+    s.add({ ...base, line: 42 }, { ...meta, reporting_agent: 'hunter-2' })
+    expect(s.list()).toHaveLength(1)
+    expect(s.get(f.id)!.reporting_agents.sort()).toEqual(['hunter-1', 'hunter-2'])
+    expect(() => s.recordVerdict(f.id, v('confirmed', 'hunter-2'))).toThrow(/reporting agent/)
+    expect(() => s.recordVerdict(f.id, v('confirmed', 'hunter-1'))).toThrow(/reporting agent/)
+    expect(s.recordVerdict(f.id, v('confirmed', 'verifier-1')).status).toBe('confirmed')
+  })
+  test('mutating reporting_agents on a returned finding does not affect the store', () => {
+    const s = new FindingsStore()
+    const f = s.add(base, { ...meta, reporting_agent: 'hunter-1' })
+    f.reporting_agents.length = 0
+    s.get(f.id)!.reporting_agents.push('x')
+    expect(s.get(f.id)!.reporting_agents).toEqual(['hunter-1'])
+    expect(() => s.recordVerdict(f.id, v('confirmed', 'hunter-1'))).toThrow(/reporting agent/)
+  })
+  test.each([
+    ['case', 'Hunter-1'],
+    ['surrounding whitespace', '\t hunter-1 '],
+    ['NFD vs NFC', 'café'],
+  ])('agent ids are canonicalised: %s cannot evade the gate', (_n, variant) => {
+    const s = new FindingsStore()
+    const stored = variant === 'café' ? 'café' : 'hunter-1'
+    const f = s.add(base, { ...meta, reporting_agent: stored })
+    expect(() => s.recordVerdict(f.id, v('confirmed', variant))).toThrow(/reporting agent/)
+  })
+  test('the canonical form is what gets stored', () => {
+    const s = new FindingsStore()
+    expect(s.add(base, { ...meta, reporting_agent: ' Hunter-1 ' }).reporting_agents).toEqual(['hunter-1'])
+  })
+  test('a verifier cannot later become a reporter of the finding it verified', () => {
+    const s = new FindingsStore()
+    const f = s.add(base, { ...meta, reporting_agent: 'hunter-1' })
+    s.recordVerdict(f.id, v('confirmed', 'verifier-1'))
+    expect(() => s.add(base, { ...meta, reporting_agent: ' Verifier-1' })).toThrow(/verdict/)
+    expect(s.get(f.id)!.reporting_agents).toEqual(['hunter-1'])
+  })
+  test('a self-verdict is refused before the outcome is validated', () => {
+    const s = new FindingsStore()
+    const f = s.add(base, { ...meta, reporting_agent: 'hunter-1' })
+    expect(() => s.recordVerdict(f.id, { agent: 'hunter-1', outcome: 'bogus' as 'confirmed', reasoning: 'r' })).toThrow(/reporting agent/)
+  })
+  test('padding the agent id does not evade the gate', () => {
+    const s = new FindingsStore()
+    const f = s.add(base, { ...meta, reporting_agent: ' hunter-1 ' })
+    expect(s.get(f.id)!.reporting_agents).toEqual(['hunter-1'])
+    expect(() => s.recordVerdict(f.id, v('confirmed', 'hunter-1  '))).toThrow(/reporting agent/)
+  })
+})
+
 const mk = (status: Finding['status'], band?: Severity['band']): Finding => {
-  const f: Finding = { ...base, ...meta, id: 'x', status, verdicts: [], additional_locations: [] }
+  const f: Finding = { ...base, ...meta, id: 'x', status, verdicts: [], additional_locations: [], reporting_agents: [], severity_disputed: false, severity_by_agent: [] }
   if (band) {
     f.severity = { band, score: 0, factors: { exploitability: 0, reachability: 0, blast_radius: 0, data_sensitivity: 0 } }
   }
@@ -74,7 +143,7 @@ const mk = (status: Finding['status'], band?: Severity['band']): Finding => {
 }
 test('returned findings are copies: mutation cannot change status or erase a disproof', () => {
   const s = new FindingsStore()
-  const { id } = s.add(base, meta)
+  const { id } = s.add(base, m)
   s.recordVerdict(id, v('disproved'))
   const g = s.get(id)!
   g.status = 'confirmed'
@@ -86,28 +155,28 @@ test('returned findings are copies: mutation cannot change status or erase a dis
 })
 test('an unknown outcome is refused and changes nothing', () => {
   const s = new FindingsStore()
-  const { id } = s.add(base, meta)
+  const { id } = s.add(base, m)
   expect(() => s.recordVerdict(id, { agent: 'a', outcome: 'confirmd' as 'confirmed', reasoning: 'r' })).toThrow(/outcome/)
   expect(s.get(id)).toMatchObject({ status: 'candidate', verdicts: [] })
 })
 test('extra runtime properties on input are not stored', () => {
   const s = new FindingsStore()
   const sneaky = { ...base, severity: { band: 'critical' }, status: 'confirmed' } as typeof base
-  const f = s.add(sneaky, meta)
+  const f = s.add(sneaky, m)
   expect(f.status).toBe('candidate')
   expect(f).not.toHaveProperty('severity')
 })
 test('empty reachability and empty or whitespace snippets are refused', () => {
   const s = new FindingsStore()
-  expect(() => s.add(base, { ...meta, reachability: '  ' })).toThrow(/reachability/)
-  expect(() => s.add({ ...base, snippet: ' \n\t' }, meta)).toThrow(/snippet/)
+  expect(() => s.add(base, { ...m, reachability: '  ' })).toThrow(/reachability/)
+  expect(() => s.add({ ...base, snippet: ' \n\t' }, m)).toThrow(/snippet/)
   expect(s.list()).toHaveLength(0)
 })
 test('a duplicate at another line keeps its location and reachability as evidence', () => {
   const s = new FindingsStore()
-  const a = s.add(base, meta)
-  s.add({ ...base, line: 90 }, { ...meta, reachability: 'cron job passes env value' })
-  s.add({ ...base, line: 90 }, { ...meta, reachability: 'cron job passes env value' })
+  const a = s.add(base, m)
+  s.add({ ...base, line: 90 }, { ...m, reachability: 'cron job passes env value' })
+  s.add({ ...base, line: 90 }, { ...m, reachability: 'cron job passes env value' })
   const f = s.get(a.id)!
   expect(s.list()).toHaveLength(1)
   expect(f.line).toBe(40)
@@ -129,4 +198,157 @@ describe('decideExitCode', () => {
     expect(decideExitCode(fs, 'info')).toBe(0)
   })
   test('confirmed without severity does not trip', () => expect(decideExitCode([mk('confirmed')], 'info')).toBe(0))
+})
+
+describe('severity in the store', () => {
+  // The plan's HIGH {3,3,2,2} scores 26 (critical), not 21; {3,2,2,1} is 9+6+4+2 = 21 (high).
+  const HIGH = { exploitability: 3, reachability: 2, blast_radius: 2, data_sensitivity: 1 } as const
+  const LOW = { exploitability: 1, reachability: 0, blast_radius: 0, data_sensitivity: 0 } as const // 3 -> info
+  const MAX_FACTORS = { exploitability: 3, reachability: 3, blast_radius: 3, data_sensitivity: 3 } as const
+  const setup = (): { s: FindingsStore; id: string } => {
+    const s = new FindingsStore()
+    return { s, id: s.add(base, m).id }
+  }
+  const verdict = (agent: string, factors: SeverityFactors, outcome: 'confirmed' | 'disproved' = 'confirmed') => ({ agent, outcome, reasoning: 'r', factors })
+
+  test('a single verifier sets the severity', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('v1', HIGH))
+    expect(s.get(id)!.severity!.band).toBe('high')
+  })
+  test('the highest band wins across verifiers', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('v1', LOW))
+    s.recordVerdict(id, verdict('v2', HIGH))
+    expect(s.get(id)!.severity!.band).toBe('high')
+  })
+  test('differing verifiers set severity_disputed and keep both', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('v1', LOW))
+    s.recordVerdict(id, verdict('v2', HIGH))
+    const f = s.get(id)!
+    expect(f.severity_disputed).toBe(true)
+    expect(f.severity_by_agent.map((x) => x.agent).sort()).toEqual(['v1', 'v2'])
+  })
+  test('agreeing verifiers are not disputed', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('v1', HIGH))
+    s.recordVerdict(id, verdict('v2', HIGH))
+    expect(s.get(id)!.severity_disputed).toBe(false)
+  })
+  test('different factors landing in the same band are not disputed', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('v1', HIGH))
+    s.recordVerdict(id, verdict('v2', { exploitability: 3, reachability: 3, blast_radius: 1, data_sensitivity: 0 }))// 20 -> high
+    expect(s.get(id)!.severity_disputed).toBe(false)
+  })
+  test('factors on a disproved verdict do not raise the band of a dropped finding', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('v1', MAX_FACTORS, 'disproved'))
+    const f = s.get(id)!
+    expect(f.status).toBe('dropped')
+    expect(f.severity).toBeUndefined()
+  })
+  test('one agent revising its factors replaces its own entry and does not dispute itself', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('V1', LOW))
+    s.recordVerdict(id, verdict('v1', HIGH))
+    const f = s.get(id)!
+    expect(f.severity_by_agent).toHaveLength(1)
+    expect(f.severity_by_agent[0]!.severity.band).toBe('high')
+    expect(f.severity_disputed).toBe(false)
+    expect(f.severity!.band).toBe('high')
+  })
+  test('a verdict without factors leaves severity unset and undisputed', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, v('confirmed'))
+    const f = s.get(id)!
+    expect(f.severity).toBeUndefined()
+    expect(f.severity_disputed).toBe(false)
+    expect(f.severity_by_agent).toEqual([])
+  })
+  test('a factorless verdict from the same agent leaves its earlier rating standing', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('v1', HIGH))
+    s.recordVerdict(id, v('confirmed', 'V1'))
+    const f = s.get(id)!
+    expect(f.severity!.band).toBe('high')
+    expect(f.severity_by_agent).toHaveLength(1)
+  })
+
+  describe('a dropped finding carries no severity', () => {
+    const expectBare = (f: Finding): void => {
+      expect(f.status).toBe('dropped')
+      expect(f.severity).toBeUndefined()
+      expect(f.severity_disputed).toBe(false)
+      expect(f.severity_by_agent).toEqual([])
+    }
+    test('same agent confirms with factors, then disproves', () => {
+      const { s, id } = setup()
+      s.recordVerdict(id, verdict('v1', HIGH))
+      s.recordVerdict(id, v('disproved', 'v1'))
+      expectBare(s.get(id)!)
+    })
+    test('same agent disproves, then confirms with factors', () => {
+      const { s, id } = setup()
+      s.recordVerdict(id, v('disproved', 'v1'))
+      s.recordVerdict(id, verdict('v1', HIGH))
+      expectBare(s.get(id)!)
+    })
+    test('another agent confirms with factors and a second agent disproves', () => {
+      const { s, id } = setup()
+      s.recordVerdict(id, verdict('v1', HIGH))
+      s.recordVerdict(id, verdict('v3', LOW))
+      s.recordVerdict(id, v('disproved', 'v2'))
+      expectBare(s.get(id)!)
+    })
+  })
+
+  describe('factors are validated at the store boundary', () => {
+    const bad = (factors: unknown) => ({ agent: 'v1', outcome: 'confirmed' as const, reasoning: 'r', factors: factors as SeverityFactors })
+    test.each([
+      ['negative', { ...HIGH, exploitability: -1 }],
+      ['above 3', { ...HIGH, blast_radius: 4 }],
+      ['non-integer', { ...HIGH, reachability: 1.5 }],
+      ['NaN', { ...HIGH, exploitability: NaN }],
+      ['Infinity', { ...HIGH, data_sensitivity: Infinity }],
+      ['a string', { ...HIGH, exploitability: '3' }],
+      ['a missing key', { exploitability: 3, reachability: 3, blast_radius: 3 }],
+      ['an empty object', {}],
+      ['a non-object', 'high'],
+      ['null', null],
+    ])('rejects %s and records no verdict', (_name, factors) => {
+      const { s, id } = setup()
+      expect(() => s.recordVerdict(id, bad(factors))).toThrow(/factors/)
+      const f = s.get(id)!
+      expect(f.verdicts).toEqual([])
+      expect(f.status).toBe('candidate')
+      expect(f.severity).toBeUndefined()
+    })
+  })
+
+  describe('the store keeps its own copies', () => {
+    test('mutating the caller factors after recording does not change the store', () => {
+      const { s, id } = setup()
+      const factors: SeverityFactors = { ...HIGH }
+      s.recordVerdict(id, verdict('v1', factors))
+      factors.exploitability = 0
+      factors.reachability = 0
+      const f = s.get(id)!
+      expect(f.severity!.band).toBe('high')
+      expect(f.verdicts[0]!.factors).toEqual(HIGH)
+    })
+    test('mutating returned factors, severity_by_agent or severity does not change the store', () => {
+      const { s, id } = setup()
+      const returned = s.recordVerdict(id, verdict('v1', HIGH))
+      returned.verdicts[0]!.factors!.exploitability = 0
+      returned.severity_by_agent[0]!.severity.band = 'info'
+      returned.severity_by_agent.push({ agent: 'forged', severity: returned.severity! })
+      returned.severity!.band = 'info'
+      const f = s.get(id)!
+      expect(f.verdicts[0]!.factors).toEqual(HIGH)
+      expect(f.severity_by_agent.map((x) => [x.agent, x.severity.band])).toEqual([['v1', 'high']])
+      expect(f.severity!.band).toBe('high')
+    })
+  })
 })

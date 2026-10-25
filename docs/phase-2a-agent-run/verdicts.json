@@ -1,0 +1,22 @@
+[
+  {
+    "candidate": 0,
+    "agent": "verifier-integration-1",
+    "outcome": "confirmed",
+    "reasoning": "Read src/server.js:22-25. Line 22 registers app.get('/users', handler) with no middleware argument, and there is no app.use anywhere in the file, so nothing authenticates this route. Line 23 passes a single concatenated string to db.query on a pg Pool, so the simple query protocol runs it with no binding. src/util.js exports only clamp and is never required, so no sanitizer exists to miss. The interpolated value traces one hop back to req.query.name, unvalidated and unbound.",
+    "severity_factors": { "exploitability": 3, "reachability": 3, "blast_radius": 3, "data_sensitivity": 2 }
+  },
+  {
+    "candidate": 1,
+    "agent": "verifier-integration-1",
+    "outcome": "confirmed",
+    "reasoning": "Read src/server.js:32-35. Line 32 registers app.delete('/users/:id', handler) with no middleware; line 37 by contrast passes requireAuth, and no app.use exists, so the omission is real rather than an inherited global guard. Line 33 concatenates req.params.id into the statement with no $1, no values array, no Number or parseInt cast and no allowlist, and the route path carries no numeric constraint. The value is attacker-controlled by construction.",
+    "severity_factors": { "exploitability": 3, "reachability": 3, "blast_radius": 3, "data_sensitivity": 2 }
+  },
+  {
+    "candidate": 2,
+    "agent": "verifier-integration-1",
+    "outcome": "disproved",
+    "reasoning": "Read src/server.js:27-30. Line 28's statement text is a constant single-quoted literal with no concatenation, template literal or format call, and the untrusted value is the sole element of a separate values array, so pg binds it through the extended query protocol and it never becomes statement text. The exact value flagged is the bound one, which is the technique's own disproof condition. Attempted rescues all failed: no second concatenated fragment, no disguised template literal, no unbindable identifier such as a table name or ORDER BY direction, and an array-form query parameter becomes a bound array rather than statement text. Independently, line 27 passes requireAuth, which the claim omits. This is the paired safe form the technique tells verifiers not to flag."
+  }
+]

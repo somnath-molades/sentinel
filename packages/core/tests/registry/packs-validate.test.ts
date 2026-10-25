@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse } from 'yaml'
-import { packSchema, parseTechnique, type PackManifest, type TechniqueEntry } from '@sentinel/core'
+import { DOMAINS, packSchema, parseTechnique, type PackManifest, type TechniqueEntry } from '@sentinel/core'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..')
 const packsRoot = resolve(repoRoot, 'registry/packs')
@@ -129,4 +129,33 @@ test('every pack has an audit row pinning the same commit', () => {
     expect(audit).toContain(p.source_url)
     if (p.upstream_commit !== undefined) expect(audit).toContain(p.upstream_commit)
   }
+})
+
+test('every entry declares a domain in the vocabulary', () => {
+  for (const t of allTechniques()) expect(DOMAINS).toContain(t.domain)
+})
+
+// Spec 4.3, verbatim. Pinned so a re-filed or mistyped entry fails here and names itself.
+// (The "appears in exactly one assignment" form needs planHunts and belongs to Task 9.)
+test('every entry carries the primary domain spec 4.3 assigns it', () => {
+  expect(Object.fromEntries(allTechniques().map((t) => [t.id, t.domain]))).toEqual({
+    'sql-injection-built-query-string': 'injection',
+    'command-injection-shell-interpolation': 'injection',
+    'reflected-xss-unescaped-output': 'injection',
+    'path-traversal-unvalidated-file-path': 'injection',
+    'unsafe-deserialization-untrusted-payload': 'injection',
+    'cross-file-taint-source-to-sink': 'injection',
+    'hardcoded-secret-in-source': 'secrets',
+    'vulnerable-dependency-version': 'dependencies',
+    'permissive-cors-with-credentials': 'authorization',
+    'entrypoint-reachability-under-auth-state': 'authorization',
+    'over-permissive-agent-tool-allowlist': 'agentic',
+    'debug-mode-verbose-errors': 'configuration',
+    'unbounded-copy-into-fixed-buffer': 'memory-safety',
+  })
+})
+
+test('the injection domain holds the cross-cutting taint entry', () => {
+  const ids = allTechniques().filter((t) => t.domain === 'injection').map((t) => t.id)
+  expect(ids).toContain('cross-file-taint-source-to-sink')
 })

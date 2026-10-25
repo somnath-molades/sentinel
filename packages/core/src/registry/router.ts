@@ -1,8 +1,8 @@
 import type { DepthTier } from '../schema/technique.js'
 import type { IndexedTechnique, RegistryIndex } from './build-index.js'
-import { WILDCARD_STACK } from './vocabulary.js'
+import { WILDCARD_STACK, type Domain } from './vocabulary.js'
 
-export type TechniqueQuery = { vuln_class?: string; stack?: string; depth_tier?: DepthTier; limit?: number }
+export type TechniqueQuery = { vuln_class?: string; domain?: Domain; stack?: string; depth_tier?: DepthTier; limit?: number }
 
 // match: 'exact' = at least one result lists the queried stack (or no stack was queried);
 // 'wildcard-only' = results exist but only via `generic`, i.e. the stack itself is unknown or uncovered;
@@ -25,6 +25,7 @@ export function selectTechniques(index: RegistryIndex, q: TechniqueQuery): Techn
   const out = index.techniques
     .filter((t) => q.vuln_class === undefined || t.vuln_classes.includes(q.vuln_class))
     .filter((t) => q.depth_tier === undefined || t.depth_tier === q.depth_tier)
+    .filter((t) => q.domain === undefined || t.domain === q.domain)
     .filter((t) => q.stack === undefined || exact(t) || t.stacks.includes(WILDCARD_STACK))
     .sort((a, b) => Number(exact(b)) - Number(exact(a)) || cmp(a.depth_tier, b.depth_tier) || cmp(a.id, b.id))
   // Computed before `limit` so truncation cannot change the coverage signal.

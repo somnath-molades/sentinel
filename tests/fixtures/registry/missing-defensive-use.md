@@ -3,6 +3,7 @@ id: sql-injection-string-concat
 vuln_classes: [sql-injection]
 cwe: [CWE-89]
 depth_tier: L1
+domain: injection
 stacks: [node, python]
 fix_patterns:
   - stack: node

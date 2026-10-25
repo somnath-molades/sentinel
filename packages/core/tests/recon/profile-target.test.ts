@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -6,6 +6,28 @@ import { profileTarget } from '../../src/recon/profile-target.js'
 import { targetProfileSchema } from '../../src/schema/target-profile.js'
 
 const fixture = (name: string): string => fileURLToPath(new URL(`../../../../tests/fixtures/targets/${name}`, import.meta.url))
+
+test('header files are recognised, not counted as unexamined', async () => {
+  const p = await profileTarget({ kind: 'local', root: fixture('c-memory-safety') })
+  expect(p.skipped.some((s) => s.path.endsWith('.h'))).toBe(false)
+  // An unrecognised .h is never in `skipped`; it lands in files with no language. greet.c + greet.h must both count as c.
+  expect(p.languages.find((l) => l.language === 'c')?.files).toBe(2)
+})
+
+// Spec 6.4: without a safe counterpart for each planted defect, "it found the real thing"
+// would pass against a tool that flags every route and every query. This is a tripwire against
+// the controls being deleted, not a behaviour test — it asserts the fixture's content.
+// The controls only become meaningful when a hunt asserts the safe lines are NOT reported.
+test('the fixture contains both a vulnerable and a safe form of each planted class', async () => {
+  const src = await readFile(join(fixture('express-vulnerable'), 'src/server.js'), 'utf8')
+  expect(src).toMatch(/\.query\([^)]*\$1/) // a value bound as a parameter, not interpolated
+  expect(src).toMatch(/app\.delete\([^)]*requireAuth,/) // the check is APPLIED to a route, not merely defined
+  expect(src).toMatch(/jwt\.verify\(/) // and it validates the token rather than just its presence
+  expect(src).toMatch(/user_id = \$2/) // the authorized route also checks ownership
+  // The defects must survive: concatenated SQL and an unauthenticated destructive route.
+  expect(src).toMatch(/SELECT \* FROM users WHERE name = '" \+ req\.query\.name/)
+  expect(src).toMatch(/DELETE FROM users WHERE id = ' \+ req\.params\.id/)
+})
 
 test('profiles an express app', async () => {
   const p = await profileTarget({ kind: 'local', root: fixture('express-vulnerable') })

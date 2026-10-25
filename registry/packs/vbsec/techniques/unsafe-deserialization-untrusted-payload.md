@@ -3,6 +3,7 @@ id: unsafe-deserialization-untrusted-payload
 vuln_classes: [unsafe-deserialization]
 cwe: [CWE-502]
 depth_tier: L1
+domain: injection
 stacks: [python, php, node, java]
 fix_patterns:
   - stack: python

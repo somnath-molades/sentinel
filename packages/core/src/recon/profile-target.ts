@@ -1,5 +1,6 @@
 import { basename } from 'node:path'
 import type { ResolvedTarget } from '../scope/resolve-target.js'
+import type { Domain } from '../registry/vocabulary.js'
 import type { Entrypoint, Hotspot, LangStat, TargetProfile } from '../schema/target-profile.js'
 import { detectStack, isManifest } from './detect-stack.js'
 import { walkTarget } from './walk.js'
@@ -36,8 +37,8 @@ function scan(text: string, file: FileRecord): Scan {
 
 function hotspotFor(s: Scan, hasRoutes: boolean): Hotspot | null {
   const reasons: string[] = []
-  const domains = new Set<string>()
-  const flag = (domain: string, reason: string): void => {
+  const domains = new Set<Domain>()
+  const flag = (domain: Domain, reason: string): void => {
     domains.add(domain)
     reasons.push(reason)
   }
@@ -50,12 +51,14 @@ function hotspotFor(s: Scan, hasRoutes: boolean): Hotspot | null {
   return reasons.length === 0 ? null : { path: s.file.path, reason: reasons.join('; '), domains: [...domains] }
 }
 
-export async function profileTarget(target: ResolvedTarget, opts: WalkOptions = {}): Promise<TargetProfile> {
+/** `onWalked` receives each included file's path, so a caller can validate paths agents send back; the profile itself carries no file list. */
+export async function profileTarget(target: ResolvedTarget, opts: WalkOptions = {}, onWalked?: (path: string) => void): Promise<TargetProfile> {
   const root = target.root // already a realpath; never re-resolved (R15)
   const manifests = new Map<string, string>()
   const scans: Scan[] = []
   // Every file is opened exactly once, by the walk; detectors consume that text and never re-open a path.
   const { files, skipped, truncated } = await walkTarget(root, opts, (f, text) => {
+    onWalked?.(f.path)
     if (isManifest(f.path)) manifests.set(f.path, text)
     if (f.language || basename(f.path).startsWith('.env')) scans.push(scan(text, f))
   })
