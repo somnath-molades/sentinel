@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url'
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander'
 import type { Severity } from '@sentinel/core'
 import { packsAudit, packsList } from './commands/packs.js'
+import { init } from './commands/init.js'
 import { scan } from './commands/scan.js'
 import { CliError, reason } from './context.js'
 import type { Ctx, Deps, IO } from './context.js'
@@ -32,6 +33,12 @@ function buildProgram(ctx: Ctx, setCode: (c: number) => void): Command {
     .action(async (target: string, o: { format: 'markdown' | 'sarif'; failOn?: Severity['band']; maxFiles?: number; registry?: string }) => {
       setCode(await scan(target, { format: o.format, failOn: o.failOn ?? null, ...(o.maxFiles !== undefined ? { maxFiles: o.maxFiles } : {}), ...(o.registry !== undefined ? { registry: o.registry } : {}) }, ctx))
     })
+
+  program
+    .command('init')
+    .description('Attest authorization and record consent (give a target to attest that target)')
+    .argument('[target]', 'local directory or https://github.com/<owner>/<repo> to attest')
+    .action(async (target: string | undefined) => setCode(await init(target, ctx)))
 
   const packs = program.command('packs').description('Inspect the technique registry')
   packs.command('list').addOption(registryOption()).action(async (o: { registry?: string }) => setCode(await packsList(o.registry, ctx)))

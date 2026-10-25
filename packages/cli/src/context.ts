@@ -5,7 +5,16 @@ import type { RegistryIndex, SchemaError } from '@sentinel/core'
 export type IO = { out: (s: string) => void; err: (s: string) => void }
 export type GhRunner = (args: string[], timeoutMs: number) => Promise<{ code: number; stdout: string }>
 /** huntersAvailable is false in this build (Phase 1 has no hunter agents); it exists so the --fail-on wiring can be tested. */
-export type Deps = { gh?: GhRunner; huntersAvailable?: boolean }
+export type Deps = {
+  gh?: GhRunner
+  huntersAvailable?: boolean
+  /** init only: the next typed line, or null at EOF. Default reads process.stdin. */
+  readLine?: () => Promise<string | null>
+  /** init only: the user's working directory, where the consent record lives. Default process.cwd(). */
+  cwd?: string
+  /** init only: the attestation document to show. Default is the bundled AUTHORIZATION.md. */
+  authorizationPath?: string
+}
 export type Ctx = { io: IO; deps: Deps; defaultRegistry: string }
 
 /** A failure with a user-facing reason. The top level prints it without a stack trace. */
