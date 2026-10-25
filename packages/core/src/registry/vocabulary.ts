@@ -32,6 +32,8 @@ const LANGUAGE_STACK: Record<string, (typeof STACKS)[number]> = {
   go: 'go',
   php: 'php',
   java: 'java',
+  c: 'c',
+  cpp: 'cpp',
 }
 export const KNOWN_LANGUAGES: readonly string[] = Object.keys(LANGUAGE_STACK)
 // Own-property guard: a language named `__proto__` or `constructor` must be undefined here, not a prototype member.

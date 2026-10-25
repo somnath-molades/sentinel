@@ -19,6 +19,7 @@ const LANGUAGES: Record<string, string> = {
   '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript', '.jsx': 'javascript',
   '.ts': 'typescript', '.tsx': 'typescript', '.py': 'python', '.go': 'go', '.rs': 'rust',
   '.php': 'php', '.rb': 'ruby', '.java': 'java', '.cs': 'csharp', '.sh': 'shell',
+  '.c': 'c', '.h': 'c', '.cc': 'cpp', '.cpp': 'cpp', '.hpp': 'cpp',
 }
 
 /**

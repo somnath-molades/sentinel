@@ -7,6 +7,11 @@ import { targetProfileSchema } from '../../src/schema/target-profile.js'
 
 const fixture = (name: string): string => fileURLToPath(new URL(`../../../../tests/fixtures/targets/${name}`, import.meta.url))
 
+test('header files are recognised, not counted as unexamined', async () => {
+  const p = await profileTarget({ kind: 'local', root: fixture('c-memory-safety') })
+  expect(p.skipped.some((s) => s.path.endsWith('.h'))).toBe(false)
+})
+
 test('profiles an express app', async () => {
   const p = await profileTarget({ kind: 'local', root: fixture('express-vulnerable') })
   expect(p.frameworks).toContain('express')

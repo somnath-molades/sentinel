@@ -120,7 +120,7 @@ describe('empty or partial inputs never read as clean', () => {
   test('a target with no classifiable language warns at profile time and again in the report, even after selecting generic', async () => {
     await rm(join(dir, 'src'), { recursive: true })
     await rm(join(dir, 'main.rs'))
-    await writeFile(join(dir, 'main.c'), 'int main(void){return 0;}\n')
+    await writeFile(join(dir, 'main.rb'), 'puts 1\n') // ruby has no stack; C used to be the example here
     const c = await connect()
     const p = json(await call(c, 'profile_target', { target: dir }))
     expect(p.stacks.suggested).toEqual([])

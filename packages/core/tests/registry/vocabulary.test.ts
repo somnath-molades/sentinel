@@ -9,6 +9,13 @@ test('every mapped language lands on a real stack token; unmapped languages map 
   for (const l of ['rust', 'ruby', 'csharp', 'shell', '']) expect(stackForLanguage(l)).toBeUndefined()
 })
 
+test('a C project yields a c stack, and cpp resolves', async () => {
+  const p = await profileTarget({ kind: 'local', root: fixture('c-memory-safety') })
+  expect(p.languages.map((l) => l.language)).toContain('c')
+  expect(stackForLanguage('c')).toBe('c')
+  expect(stackForLanguage('cpp')).toBe('cpp')
+})
+
 // M2: the lookup is an object index, so a prototype member must not come back as a stack.
 test('a language named after a prototype member maps to nothing', () => {
   for (const l of ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'valueOf']) expect(stackForLanguage(l)).toBeUndefined()
