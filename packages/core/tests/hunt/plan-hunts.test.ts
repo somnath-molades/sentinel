@@ -2,6 +2,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   DOMAINS,
+  STACKS,
   buildIndex,
   planHunts,
   profileTarget,
@@ -14,7 +15,7 @@ const registryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../
 const fixture = (name: string): string => resolve(dirname(fileURLToPath(import.meta.url)), '../../../../tests/fixtures/targets', name)
 
 // Synthetic profiles are parsed through the real schema so they cannot drift from its shape.
-const synthetic = (languages: string[], hotspots: TargetProfile['hotspots'] = []): TargetProfile =>
+const synthetic = (languages: string[], hotspots: TargetProfile['hotspots'] = [], ci: string[] = []): TargetProfile =>
   targetProfileSchema.parse({
     schema_version: 1,
     target: { kind: 'local', root: '/tmp/synthetic' },
@@ -25,7 +26,7 @@ const synthetic = (languages: string[], hotspots: TargetProfile['hotspots'] = []
     auth_surfaces: [],
     data_layer: [],
     iac: [],
-    ci: [],
+    ci,
     client_boundary: [],
     hotspots,
     skipped: [],
@@ -119,10 +120,29 @@ test('several stacks: the best coverage wins', () => {
 // Spec 8.2 item 3. No single realistic profile has every stack, so use one declaring every language
 // the registry's stacks can be derived from. Every entry must land in at least one hunter's assignment.
 test('every registry entry appears in at least one assignment', () => {
-  const everything = synthetic(['javascript', 'python', 'go', 'php', 'java', 'c', 'cpp'])
-  const assigned = new Set(planHunts(everything, index).flatMap((a) => a.techniques.map((t) => t.id)))
-  const stranded = index.techniques.map((t) => t.id).filter((id) => !assigned.has(id))
-  expect(stranded).toEqual([])
+  // `ci` is included so ci-only entries are exercised; `agent-config` is not derivable yet (see plan-hunts.ts).
+  const everything = synthetic(['javascript', 'python', 'go', 'php', 'java', 'c', 'cpp'], [], ['github-actions'])
+  const counts = new Map<string, number>()
+  for (const a of planHunts(everything, index)) for (const t of a.techniques) counts.set(t.id, (counts.get(t.id) ?? 0) + 1)
+  // Exactly one: zero is a stranded entry, more than one is a duplicate (revisit when multi-domain entries land).
+  expect(index.techniques.map((t) => [t.id, counts.get(t.id) ?? 0])).toEqual(index.techniques.map((t) => [t.id, 1]))
+})
+
+test('a ci-only entry is reachable once ci is detected', () => {
+  const ciOnly: RegistryIndex = { ...index, techniques: [{ ...index.techniques[0]!, id: 'ci-only-probe', domain: 'iac', stacks: ['ci'] }] }
+  const get = (p: TargetProfile) => planHunts(p, ciOnly).find((a) => a.domain === 'iac')!.techniques.map((t) => t.id)
+  expect(get(synthetic(['javascript'], [], ['github-actions']))).toEqual(['ci-only-probe'])
+  expect(get(synthetic(['javascript']))).toEqual([])
+})
+
+test('agentic coverage is exact when CI is detected and wildcard-only otherwise', () => {
+  const cov = (p: TargetProfile) => planHunts(p, index).find((a) => a.domain === 'agentic')!.coverage
+  expect(cov(synthetic(['javascript'], [], ['github-actions']))).toBe('exact')
+  expect(cov(synthetic(['javascript']))).toBe('wildcard-only')
+})
+
+test('the unknown-stack sentinel is not a real stack', () => {
+  expect(STACKS).not.toContain('unknown')
 })
 
 // Spec 8.1 C row, assignment level.

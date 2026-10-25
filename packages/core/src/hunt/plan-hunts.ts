@@ -31,6 +31,10 @@ export function planHunts(profile: TargetProfile, index: RegistryIndex): HuntAss
     const s = stackForLanguage(l.language)
     if (s !== undefined) known.add(s)
   }
+  // `ci` is derivable from the profile; detected CI config makes CI-stack techniques apply exactly.
+  if (profile.ci.length > 0) known.add('ci')
+  // Deferred: `agent-config` is not derivable yet (no profile field; recon must first detect agent/tool
+  // configuration files). Until then the agentic domain reaches its techniques only via `generic` or `ci`.
   const stacks = known.size > 0 ? [...known].sort() : [UNKNOWN_STACK]
 
   return DOMAINS.map((domain): HuntAssignment => {
@@ -44,7 +48,8 @@ export function planHunts(profile: TargetProfile, index: RegistryIndex): HuntAss
     // Order: listed for one of the profile's own stacks first, then depth tier, then id (total order).
     const own = (t: IndexedTechnique): number => Number(t.stacks.some((s) => known.has(s)))
     const techniques = [...byId.values()].sort((a, b) => own(b) - own(a) || cmp(a.depth_tier, b.depth_tier) || cmp(a.id, b.id))
-    const hotspot_paths = [...new Set(profile.hotspots.filter((h) => h.domains.includes(domain)).map((h) => h.path))].sort()
+    // Alphabetical is safe only because recon emits hotspots unranked (walk order); if recon ever ranks them, drop this sort (spec 7.1).
+    const hotspot_paths =[...new Set(profile.hotspots.filter((h) => h.domains.includes(domain)).map((h) => h.path))].sort()
 
     if (techniques.length > 0) return { domain, techniques, hotspot_paths, coverage }
     const anywhere = selectTechniques(index, { domain }).techniques.length
