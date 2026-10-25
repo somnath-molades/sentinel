@@ -2,11 +2,23 @@
 
 Sentinel scanned by Sentinel. This is the project's primary credibility argument (spec section 10), so it reports what happened, including what is wrong.
 
-## Read this first: this scan cannot find anything
+## Read this first: the command-line scan below still cannot find anything
 
-**This phase has no hunter agents. No detection runs.** Sentinel selects which techniques apply to a codebase and then reports; nothing yet applies them. The scan below found zero findings **by construction, not because the code is clean.** Zero findings here is not evidence of anything about Sentinel's security, and an empty report from this build is never a clean result for any target. The tool says so in every report it prints.
+**The `sentinel scan` command runs no hunter.** It selects techniques and reports; it never applies them. The command-line scan in the sections below found zero findings **by construction, not because the code is clean.** Zero findings there is not evidence of anything about Sentinel's security, and an empty report from the command line is never a clean result for any target. The tool says so in every report it prints.
 
-What the self-scan does demonstrate is narrower: the pipeline (consent, scope lock, attestation, walk, profile, technique selection, report) runs end to end on a real, non-trivial repository without crashing, and reports its own coverage gaps. The CI self-scan is intended to become a finding gate in Phase 2, when hunter agents are planned; that is an intention, not something this phase established.
+What changed in Phase 2a, stated narrowly:
+
+- Hunter and verifier skills now exist (`skills/sentinel-hunt`, `skills/sentinel-verify`), and the MCP tool `plan_hunts` computes a hunt assignment for each of ten vulnerability domains. These are instructions and plumbing for an agent harness. Nothing in this repository dispatches an agent, so no detection runs unless an operator runs one by hand.
+- Only one domain, `injection`, is a proven path: it has the most technique entries (six) and it is the only domain exercised against a fixture with known planted bugs. Nine domains are not proven. Three of them (`iac`, `supply-chain`, `crypto`) have no technique entry at all, so nothing is examined there. The other six (`authorization`, `secrets`, `dependencies`, `agentic`, `memory-safety`, `configuration`) have one or two technique entries each that no real-agent run has ever applied; a technique entry is guidance text, not demonstrated detection. A scan of this repository by Sentinel says nothing about those nine domains.
+- The automated tests prove the plumbing with canned agent output. They say nothing about whether a real agent finds bugs; that is measured separately, below, and never asserted by a passing test.
+
+What the command-line self-scan demonstrates is narrower still: the pipeline (consent, scope lock, attestation, walk, profile, technique selection, report) runs end to end on a real, non-trivial repository without crashing, and reports its own coverage gaps. The CI self-scan asserts that and nothing more; it is not a finding gate.
+
+## Real-agent run
+
+<!-- PLACEHOLDER for the controller: fill with the actual outcome of `scripts/hunt-integration.mjs` run with real hunter and verifier agents (date, agents used, found, missed, false positives, what the verifier did with them). Until this is filled, NO claim about agent quality exists in this file. -->
+
+**Not yet recorded.** No result from a real-agent run is stated here, and none should be inferred from the sections above.
 
 ## Run
 
@@ -55,4 +67,4 @@ Review across the phase's fourteen tasks deferred 110 minor findings and flagged
 1. **False "nothing was missed" claim (fixed).** The coverage text for skipped symlinks says that a link pointing inside the scanned folder was examined and "nothing was missed". That is not always true: the link's target can carry its own skip reason (vendored, too large, generated). The text overstates.
 2. **Prototype-member lookup on untrusted input (fixed).** A language lookup indexes a plain object with an untrusted key, so `__proto__` or `constructor` returns a prototype member. It is not exploitable, because a vocabulary check refuses the value first. It is inconsistent with the `Object.hasOwn` pattern this repository uses elsewhere, and it is a pattern Sentinel itself would flag.
 
-Other known limits of this phase: no hunter agents (above); no CVE or secret-entropy tooling; stacks without techniques (such as shell) are not examined; the CI self-scan asserts that the pipeline exits 0 and is not a finding gate.
+Other known limits: the command-line scan runs no hunter (above); nine of ten domains are not proven paths (above); no CVE or secret-entropy tooling; stacks without techniques (such as shell) are not examined; the CI self-scan asserts that the pipeline exits 0 and is not a finding gate.

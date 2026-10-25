@@ -35,6 +35,21 @@ test('scan is refused before init, then init and scan produce a report on a fixt
   expect(stdout).toMatch(/dependency CVE/)
 }, 30_000)
 
+// The CLI has no plan_hunts route (plan_hunts is an MCP tool; the MCP-level test is in packages/mcp/tests/hunt-loop.test.ts).
+// What the CLI owes a reader is that it hunts nothing and says so; these fail if that honesty is removed.
+test('the CLI report says nothing was hunted, and a --fail-on gate refuses to pass on it', async () => {
+  expect((await sentinel(['init', express], 'yes\nno\n')).code).toBe(0)
+  const plain = await sentinel(['scan', express])
+  expect(plain.code).toBe(0)
+  expect(plain.stdout).toMatch(/Confirmed: 0/)
+  expect(plain.stdout).toMatch(/zero findings means nothing was hunted/)
+  expect(plain.stdout).toMatch(/not a clean result/i)
+  const gated = await sentinel(['scan', express, '--fail-on', 'high'])
+  expect(gated.code).toBe(2) // exit 0 here would read as "no high findings" when nothing was hunted
+  expect(gated.stderr).toMatch(/gate cannot be evaluated/)
+  expect(gated.stderr).toMatch(/No hunter agents/)
+}, 30_000)
+
 test('Sentinel scans itself and the pipeline completes without a threshold', async () => {
   expect((await sentinel(['init', root], 'yes\nno\n')).code).toBe(0)
   const { code, stdout } = await sentinel(['scan', root])

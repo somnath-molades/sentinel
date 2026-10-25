@@ -199,3 +199,26 @@ describe('agent output is untrusted: file paths are checked against what was wal
     expect(r.content[0]!.text).toMatch(/No target has been profiled in this session\. Call profile_target first\./)
   })
 })
+
+describe('plan_hunts over the real protocol (where the assignment behaviour lives; the CLI has no route to it)', () => {
+  type Assignment = { domain: string; techniques: { id: string; path: string }[]; reason?: string; hotspot_paths: string[]; coverage: string }
+  const plan = async (c: Client): Promise<{ registry_root: string; target_root: string; assignments: Assignment[] }> => JSON.parse((await callRaw(c, 'plan_hunts', {})).content[0]!.text)
+
+  test('the injection assignment is non-empty, its technique paths resolve under registry_root, and the fixture route file is a hotspot', async () => {
+    const p = await plan(await session())
+    const inj = p.assignments.find((a) => a.domain === 'injection')!
+    expect(inj.techniques.map((t) => t.id)).toContain(TECHNIQUE)
+    for (const t of inj.techniques) expect(readFileSync(join(p.registry_root, t.path), 'utf8')).toContain('## Detection')
+    expect(inj.hotspot_paths).toContain('src/server.js')
+    expect(p.target_root).toBe(realpathSync(TARGET))
+  })
+
+  test('domains with no technique are present, empty, carry a reason, and the report says nothing was examined for them', async () => {
+    const c = await session()
+    const empty = (await plan(c)).assignments.filter((a) => a.techniques.length === 0)
+    expect(empty.map((a) => a.domain)).toEqual(expect.arrayContaining(['iac', 'supply-chain', 'crypto']))
+    for (const a of empty) expect(a.reason).toBeTruthy()
+    const md = await reportMd(c)
+    for (const d of ['iac', 'supply-chain', 'crypto']) expect(md).toContain(`No techniques exist for the ${d} domain: nothing was examined for it.`)
+  })
+})
