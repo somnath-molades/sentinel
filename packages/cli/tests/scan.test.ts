@@ -1,0 +1,219 @@
+import { execFile } from 'node:child_process'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import * as core from '@sentinel/core'
+import { run } from '../src/index.js'
+import type { Deps } from '../src/index.js'
+
+vi.mock('@sentinel/core', async (orig) => {
+  const real = await orig<typeof import('@sentinel/core')>()
+  return { ...real, decideExitCode: vi.fn(real.decideExitCode) }
+})
+
+const root = fileURLToPath(new URL('../../../', import.meta.url))
+const fixture = (...p: string[]): string => join(root, 'tests/fixtures', ...p)
+const express = fixture('targets/express-vulnerable')
+const badRegistry = fixture('registry/one-bad-entry')
+
+async function cli(argv: string[], deps: Deps = {}): Promise<{ code: number; out: string; err: string }> {
+  let out = ''
+  let err = ''
+  const code = await run(argv, { out: (s) => void (out += s), err: (s) => void (err += s) }, deps)
+  return { code, out, err }
+}
+
+const temps: string[] = []
+async function tmpTarget(files: Record<string, string>): Promise<string> {
+  const d = await mkdtemp(join(tmpdir(), 'cli-test-'))
+  temps.push(d)
+  for (const [f, text] of Object.entries(files)) {
+    await mkdir(join(d, f, '..'), { recursive: true })
+    await writeFile(join(d, f), text)
+  }
+  return d
+}
+afterEach(async () => {
+  vi.mocked(core.decideExitCode).mockClear()
+  await Promise.all(temps.splice(0).map((d) => rm(d, { recursive: true, force: true })))
+})
+
+describe('scan output', () => {
+  test('markdown report has a summary and a coverage section, and exits 0 on a clean fixture', async () => {
+    const r = await cli(['scan', express])
+    expect(r.code).toBe(0)
+    expect(r.out).toMatch(/^## Summary/m)
+    expect(r.out).toMatch(/^## Coverage/m)
+    expect(r.out).toMatch(/files scanned/)
+  })
+
+  test('says in plain words that no hunters ran, so zero findings is not a clean result', async () => {
+    const r = await cli(['scan', express])
+    expect(r.err).toMatch(/no hunter/i)
+    expect(r.err).toMatch(/not a clean result/i)
+    expect(r.out).toMatch(/Coverage warnings/)
+  })
+
+  test('states the technique coverage per stack, naming the exact match', async () => {
+    const r = await cli(['scan', express])
+    expect(r.err).toMatch(/node: \d+ technique/)
+    expect(r.err).toMatch(/exact/)
+  })
+
+  test('--format sarif emits only valid SARIF 2.1.0 JSON on stdout; warnings stay on stderr', async () => {
+    const r = await cli(['scan', express, '--format', 'sarif'])
+    expect(r.code).toBe(0)
+    const log = JSON.parse(r.out)
+    expect(log.version).toBe('2.1.0')
+    expect(r.err).toMatch(/no hunter/i) // the warning path was taken, and stdout is still pure JSON
+  })
+
+  test('SARIF states the reduced-coverage mode this build actually ran in', async () => {
+    const log = JSON.parse((await cli(['scan', express, '--format', 'sarif'])).out)
+    expect(JSON.stringify(log)).toMatch(/pure-reasoning|CVE|entropy/i)
+  })
+})
+
+describe('silent-failure guards', () => {
+  test('a target with no classifiable language warns that no stack could be derived', async () => {
+    const t = await tmpTarget({ 'main.tf': 'resource "x" "y" {}\n', 'ci.yaml': 'a: 1\n' })
+    const r = await cli(['scan', t])
+    expect(r.code).toBe(0)
+    expect(r.err).toMatch(/no stack (token )?could be derived/i)
+    expect(r.err).toMatch(/stack-specific techniques will not apply/i)
+  })
+
+  test('a language with no technique stack is called out as NOT examined', async () => {
+    const t = await tmpTarget({ 'main.rs': 'fn main() {}\n', 'a.py': 'print(1)\n' })
+    const r = await cli(['scan', t])
+    expect(r.err).toMatch(/rust/i)
+    expect(r.err).toMatch(/not.*examined/i)
+  })
+
+  test('a stack no technique covers is reported as none, not as covered', async () => {
+    const t = await tmpTarget({ 'a.go': 'package main\n' })
+    const r = await cli(['scan', t, '--registry', badRegistry])
+    expect(r.err).toMatch(/go: 0 techniques.*\bnone\b/)
+  })
+
+  test('a stack with only generic techniques is reported as wildcard-only', async () => {
+    const t = await tmpTarget({ 'a.go': 'package main\n' })
+    const src = await readFile(join(badRegistry, 'packs/fixture-pack/techniques/sql-injection-string-concat.md'), 'utf8')
+    const reg = await tmpTarget({
+      'packs/p/pack.yaml': await readFile(join(badRegistry, 'packs/fixture-pack/pack.yaml'), 'utf8'),
+      'packs/p/techniques/t.md': src.replace('stacks: [node, python]', 'stacks: [generic]'),
+    })
+    const r = await cli(['scan', t, '--registry', reg])
+    expect(r.err).toMatch(/go: 1 technique.*wildcard-only/)
+  })
+
+  test('registry load errors are counted and their files named', async () => {
+    const r = await cli(['scan', express, '--registry', badRegistry])
+    expect(r.code).toBe(0)
+    expect(r.err).toMatch(/\d+ registry entr(y|ies) failed to load/)
+    expect(r.err).toMatch(/\.md/)
+  })
+
+  test('an empty registry is stated, not silently treated as full coverage', async () => {
+    const reg = await tmpTarget({ 'packs/.keep': '' })
+    const r = await cli(['scan', express, '--registry', reg])
+    expect(r.err).toMatch(/no techniques/i)
+  })
+})
+
+describe('refusal and errors', () => {
+  test.each([['a file, not a directory', fixture('scope/file.txt')], ['a path that does not exist', '/nonexistent-sentinel-target'], ['a non-GitHub URL', 'https://example.com/a/b']])(
+    'an out-of-scope target (%s) is refused with exit 2 and a reason on stderr, nothing on stdout',
+    async (_, target) => {
+    const r = await cli(['scan', target])
+    expect(r.code).toBe(2)
+    expect(r.err).toMatch(/scope|refus/i)
+    expect(r.out).toBe('')
+    },
+  )
+
+  test('an unknown --format is an error (exit 2), not a silent default', async () => {
+    const r = await cli(['scan', express, '--format', 'html'])
+    expect(r.code).toBe(2)
+    expect(r.err).toMatch(/format/i)
+  })
+
+  test('an unreadable registry root is an error with a reason, not a stack trace', async () => {
+    const r = await cli(['scan', express, '--registry', '/nonexistent-registry'])
+    expect(r.code).toBe(2)
+    expect(r.err).toMatch(/registry/i)
+    expect(r.err).not.toMatch(/\n\s+at /)
+  })
+})
+
+describe('--fail-on wiring', () => {
+  test('passes the chosen band through to core decideExitCode, with the recorded findings', async () => {
+    const r = await cli(['scan', express, '--fail-on', 'high'])
+    expect(r.code).toBe(0)
+    expect(core.decideExitCode).toHaveBeenCalledWith([], 'high')
+  })
+
+  test('passes null when --fail-on is absent', async () => {
+    await cli(['scan', express])
+    expect(core.decideExitCode).toHaveBeenCalledWith([], null)
+  })
+
+  test('uses the exit code core decides', async () => {
+    vi.mocked(core.decideExitCode).mockReturnValueOnce(1)
+    expect((await cli(['scan', express, '--fail-on', 'low'])).code).toBe(1)
+  })
+
+  test('rejects a band that does not exist', async () => {
+    expect((await cli(['scan', express, '--fail-on', 'severe'])).code).toBe(2)
+  })
+})
+
+describe('GitHub clone ownership', () => {
+  const sentinelTemps = async (): Promise<string[]> => (await readdir(tmpdir())).filter((n) => n.startsWith('sentinel-') && !n.startsWith('sentinel-mcp-test-'))
+  const fakeGh =
+    (clone: 'dir' | 'file'): NonNullable<Deps['gh']> =>
+    async (args) => {
+      if (args[1] === 'view') return { code: 0, stdout: JSON.stringify({ nameWithOwner: 'a/b' }) }
+      const dest = args[3]!
+      if (clone === 'file') await writeFile(dest, 'not a directory') // profiling will fail
+      else {
+        await mkdir(dest, { recursive: true })
+        await writeFile(join(dest, 'x.py'), 'print(1)\n')
+      }
+      return { code: 0, stdout: '' }
+    }
+
+  test('the temporary clone is deleted after a successful scan', async () => {
+    const before = await sentinelTemps()
+    const r = await cli(['scan', 'https://github.com/a/b'], { gh: fakeGh('dir') })
+    expect(r.code).toBe(0)
+    expect(await sentinelTemps()).toEqual(before)
+  })
+
+  test('the temporary clone is deleted when the scan fails', async () => {
+    const before = await sentinelTemps()
+    const r = await cli(['scan', 'https://github.com/a/b'], { gh: fakeGh('file') })
+    expect(r.code).toBe(2)
+    expect(r.err).toMatch(/failed/i)
+    expect(await sentinelTemps()).toEqual(before)
+  })
+})
+
+describe('built binary', () => {
+  const bin = resolve(root, 'packages/cli/dist/bin.js')
+  const exec = promisify(execFile)
+  test('a refusal exits 2 with a reason and no stack trace', async () => {
+    const r = await exec('node', [bin, 'scan', '/nonexistent-sentinel-target']).catch((e: { code: number; stderr: string; stdout: string }) => e)
+    expect((r as { code: number }).code).toBe(2)
+    expect((r as { stderr: string }).stderr).toMatch(/refus|scope/i)
+    expect((r as { stderr: string }).stderr).not.toMatch(/\n\s+at /)
+  })
+  test('sarif piped from the real process is pure JSON', async () => {
+    const r = await exec('node', [bin, 'scan', express, '--format', 'sarif'])
+    expect(JSON.parse(r.stdout).version).toBe('2.1.0')
+    expect(r.stderr).toMatch(/no hunter/i)
+  })
+})

@@ -7,7 +7,7 @@
   "engines": { "node": ">=20.0.0" },
   "scripts": {
     "test": "vitest run",
-    "build": "tsc -b packages/core packages/mcp",
+    "build": "tsc -b packages/core packages/mcp packages/cli",
     "gen:index": "tsc -b packages/core && node scripts/gen-index.mjs",
     "gen:schema": "tsc -b packages/core && node scripts/gen-schema.mjs",
     "lint": "tsc -p tsconfig.typecheck.json",
