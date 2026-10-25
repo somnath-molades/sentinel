@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs'
-import { cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -121,6 +121,15 @@ describe('plan_hunts', () => {
     const paths: string[] = out.assignments.flatMap((a: { techniques: { path: string }[] }) => a.techniques.map((t) => t.path))
     expect(paths.length).toBeGreaterThan(0)
     for (const p of paths) expect(await readFile(join(out.registry_root, p), 'utf8')).toMatch(/^## Detection$/m)
+  })
+  test('target_root is absolute and is the directory that was profiled', async () => {
+    const c = await connect()
+    await call(c, 'profile_target', { target: dir })
+    const out = json(await call(c, 'plan_hunts', {}))
+    expect(isAbsolute(out.target_root)).toBe(true)
+    expect((await stat(out.target_root)).isDirectory()).toBe(true)
+    expect(realpathSync(out.target_root)).toBe(realpathSync(dir))
+    expect(await readFile(join(out.target_root, 'src', 'app.js'), 'utf8')).toContain('express')
   })
   test('a registry entry that failed to load is reported beside the assignments that its absence emptied', async () => {
     const reg = await mkdtemp(join(tmpdir(), 'sentinel-mcp-test-reg-'))

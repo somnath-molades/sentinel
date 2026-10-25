@@ -9,7 +9,7 @@ You are the skeptic. A hunter reported this candidate, and your job is to try to
 
 ## Inputs
 
-No tool reads a finding back, so the dispatcher supplies everything: `finding_id`, `technique_id`, `file`, `line`, the hunter's `reachability` claim, the reporter's id (its `reporting_agent`), the target path, and your own id. If any is missing, return an error to the dispatcher naming it.
+No tool reads a finding back, so the dispatcher supplies everything: `finding_id`, `technique_id`, `file`, `line`, the hunter's `reachability` claim, the reporter's id (its `reporting_agent`), and your own id. The target to read is `target_root` from `plan_hunts`, so the dispatcher need not supply it. If any of the rest is missing, return an error to the dispatcher naming it.
 
 ## Loop
 

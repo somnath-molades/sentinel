@@ -44,10 +44,20 @@ const serverSrc = read('packages/mcp/src/server.ts')
 // Input side only: severityFactorsSchema, findingSchema, agentId and `inputs` (up to the State type).
 const inputSide = toolsSrc.slice(toolsSrc.indexOf('const severityFactorsSchema'), toolsSrc.indexOf('type State'))
 const TOOL_NAMES = ['plan_hunts', 'record_finding', 'verify_finding', 'profile_target']
+// Output side: keys of HuntAssignment and IndexedTechnique read from their type declarations, plus the
+// top-level plan_hunts result keys, each required to appear in the `return ok({...})` line that builds it.
+const keysOf = (src: string, decl: string): string[] => {
+  const start = src.indexOf(decl)
+  const body = src.slice(start, src.indexOf('\n}', start))
+  return [...body.matchAll(/^\s+(\w+)\??:/gm)].map((m) => m[1]!)
+}
+const planSrc = read('packages/core/src/hunt/plan-hunts.ts')
+const indexSrc = read('packages/core/src/registry/build-index.ts')
+const okLine = toolsSrc.split('\n').find((l) => l.includes('return ok({ registry_root')) ?? ''
+const TOP_LEVEL = ['assignments', 'registry_root', 'target_root', 'registry_warning'].filter((k) => new RegExp(`\\b${k}\\b`).test(okLine))
+const outputSide = new Set([...keysOf(planSrc, 'export type HuntAssignment'), ...keysOf(indexSrc, 'export type IndexedTechnique'), ...TOP_LEVEL])
 const EXCLUDED = new Set([
-  // plan_hunts OUTPUT fields: they are read by the agent, not sent, so they are not in inputs/findingSchema.
-  'domain', 'path', 'techniques', 'reason', 'hotspot_paths', 'registry_root', 'registry_warning',
-  // Section headings of a technique file, which are registry content, not tool fields.
+  // Section headings of a technique file: registry content, not a field of any tool input or output.
   '## Detection', '## Verification',
 ])
 
@@ -57,7 +67,7 @@ test.each([HUNT, VERIFY])('%s: every backticked identifier is a real tool, input
   const unknown = ids.filter((id) => {
     if (EXCLUDED.has(id)) return false
     if (TOOL_NAMES.includes(id)) return !serverSrc.includes(`registerTool('${id}'`)
-    return !new RegExp(`\\b${id}\\b`).test(inputSide)
+    return !outputSide.has(id) && !new RegExp(`\\b${id}\\b`).test(inputSide)
   })
   expect(unknown).toEqual([])
 })

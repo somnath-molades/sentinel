@@ -11,7 +11,7 @@ You hunt one domain in code the operator owns or is authorized to assess. You on
 
 1. Call `plan_hunts`. Take the assignment whose `domain` you were given.
 2. Read the guidance for each technique in it: the file at `registry_root` joined with the technique's `path`. Its `## Detection` section says what to look for. That section is the source of truth, so do not hunt from memory.
-3. Read the code. The dispatcher gives you the target path; `profile_target` established it. The assignment carries no file list by design, so list the target's files yourself and scan all of them. `hotspot_paths` is a starting point inside the target, priority ordering, never a filter and never the extent of the scan. A domain with no hotspots is still hunted everywhere.
+3. Read the code. The target to read is `target_root` from `plan_hunts`; `profile_target` established it. The assignment carries no file list by design, so list the target's files yourself and scan all of them. `hotspot_paths` is a starting point inside the target, priority ordering, never a filter and never the extent of the scan. A domain with no hotspots is still hunted everywhere.
 4. For each candidate, check that the code really matches the technique's pattern, and write down why the vulnerable path can be reached.
 5. Call `record_finding` with `reporting_agent` set to your own id. That is the id you were dispatched under, not the verifier's and not a placeholder. Each finding needs `technique_id`, a relative `file`, `line`, `snippet`, `depth_tier` and `reachability`.
 
