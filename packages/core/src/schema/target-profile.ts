@@ -20,7 +20,7 @@ export type Hotspot = z.infer<typeof hotspotSchema>
 
 // Closed on purpose: every reason must be one the report can render.
 const skipRecordSchema = z
-  .object({ path: z.string().min(1), reason: z.enum(['minified', 'vendored', 'generated', 'binary', 'too-large', 'not-utf8']) })
+  .object({ path: z.string().min(1), reason: z.enum(['minified', 'vendored', 'generated', 'binary', 'too-large', 'not-utf8', 'not-regular', 'unreadable']) })
   .strict()
 export type SkipRecord = z.infer<typeof skipRecordSchema>
 
@@ -28,7 +28,7 @@ export const targetProfileSchema = z
   .object({
     schema_version: z.literal(1),
     target: targetSchema,
-    generated_at: z.string().min(1),
+    generated_at: z.iso.datetime(), // cached profiles are read back and printed in reports; reject "yesterday"
     languages: z.array(langStatSchema),
     frameworks: z.array(z.string()),
     entrypoints: z.array(entrypointSchema),

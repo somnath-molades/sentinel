@@ -56,3 +56,15 @@ test('rejects an unknown entrypoint kind and a wrong schema_version', () => {
   expect(targetProfileSchema.safeParse({ ...minimalProfile, entrypoints: [{ path: 'a', kind: 'rpc' }] }).success).toBe(false)
   expect(targetProfileSchema.safeParse({ ...minimalProfile, schema_version: 2 }).success).toBe(false)
 })
+
+test('Entrypoint, Hotspot and SkipRecord each reject unknown keys', () => {
+  const bad = (k: string, v: object) => targetProfileSchema.safeParse({ ...minimalProfile, [k]: [v] }).success
+  expect(bad('entrypoints', { path: 'a', kind: 'cli', extra: 1 })).toBe(false)
+  expect(bad('hotspots', { path: 'a', reason: 'r', domains: [], extra: 1 })).toBe(false)
+  expect(bad('skipped', { path: 'a', reason: 'binary', extra: 1 })).toBe(false)
+})
+
+test('rejects a generated_at that is not an ISO 8601 datetime', () => {
+  expect(targetProfileSchema.safeParse({ ...minimalProfile, generated_at: 'yesterday' }).success).toBe(false)
+  expect(targetProfileSchema.safeParse({ ...minimalProfile, generated_at: '2026-10-25' }).success).toBe(false)
+})

@@ -6,6 +6,10 @@
 # Backslash line continuations are joined before matching, so a split command is still caught.
 # shortcut: heuristic regex; obfuscation (variables, base64, `curl -o f; sh f`) is not caught, upgrade to a real shell parser if needed.
 
+# Byte-wise matching: the pattern is ASCII, and a non-UTF-8 file (e.g. a hostile test fixture) must not abort sed/grep as "illegal byte sequence".
+LC_ALL=C
+export LC_ALL
+
 FETCH='(curl|wget)'
 INTERP='(sh|bash|zsh|dash|ksh|fish|python[0-9.]*|node|perl|ruby)'
 WRAP='((sudo|env|exec|nohup|command)[[:space:]]+(-[^[:space:]]+[[:space:]]+)*)*'
