@@ -1,5 +1,6 @@
 import { basename } from 'node:path'
 import type { ResolvedTarget } from '../scope/resolve-target.js'
+import type { Domain } from '../registry/vocabulary.js'
 import type { Entrypoint, Hotspot, LangStat, TargetProfile } from '../schema/target-profile.js'
 import { detectStack, isManifest } from './detect-stack.js'
 import { walkTarget } from './walk.js'
@@ -36,8 +37,8 @@ function scan(text: string, file: FileRecord): Scan {
 
 function hotspotFor(s: Scan, hasRoutes: boolean): Hotspot | null {
   const reasons: string[] = []
-  const domains = new Set<string>()
-  const flag = (domain: string, reason: string): void => {
+  const domains = new Set<Domain>()
+  const flag = (domain: Domain, reason: string): void => {
     domains.add(domain)
     reasons.push(reason)
   }

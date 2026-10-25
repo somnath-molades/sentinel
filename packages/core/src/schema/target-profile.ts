@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DOMAINS } from '../registry/vocabulary.js'
 import type { ResolvedTarget } from '../scope/resolve-target.js'
 
 // Strict throughout: a misspelled field must fail loudly, not be silently stripped.
@@ -15,7 +16,7 @@ const entrypointSchema = z
   .strict()
 export type Entrypoint = z.infer<typeof entrypointSchema>
 
-const hotspotSchema = z.object({ path: z.string().min(1), reason: z.string().min(1), domains: z.array(z.string()) }).strict()
+const hotspotSchema = z.object({ path: z.string().min(1), reason: z.string().min(1), domains: z.array(z.enum(DOMAINS)) }).strict()
 export type Hotspot = z.infer<typeof hotspotSchema>
 
 // Closed on purpose: every reason must be one the report can render.
