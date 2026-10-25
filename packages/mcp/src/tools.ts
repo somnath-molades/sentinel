@@ -9,7 +9,6 @@ import {
   KNOWN_LANGUAGES,
   STACKS,
   buildIndex,
-  computeSeverity,
   coverageGap,
   profileTarget,
   resolveTarget,
@@ -18,7 +17,7 @@ import {
   toMarkdown,
   toSarif,
 } from '@sentinel/core'
-import type { Finding, RegistryIndex, ResolvedTarget, SchemaError, Severity, TargetProfile } from '@sentinel/core'
+import type { Finding, RegistryIndex, ResolvedTarget, SchemaError, SeverityFactors, TargetProfile } from '@sentinel/core'
 import { z } from 'zod'
 
 // Every value in this file that came from an agent is untrusted. Handlers validate and translate; all
@@ -111,11 +110,10 @@ type State = {
   target?: ResolvedTarget
   profile?: TargetProfile
   store: FindingsStore
-  severities: Map<string, Severity>
   selections: Map<string, 'exact' | 'wildcard-only' | 'none'>
   rejected: number
 }
-const fresh = (): Omit<State, 'target' | 'profile'> => ({ store: new FindingsStore(), severities: new Map(), selections: new Map(), rejected: 0 })
+const fresh = (): Omit<State, 'target' | 'profile'> => ({ store: new FindingsStore(), selections: new Map(), rejected: 0 })
 
 export type Session = {
   profile_target(a: { target: string }): Promise<ToolResult>
@@ -267,31 +265,24 @@ export function createSession(opts: SessionOptions = {}): Session {
 
     verify_finding: guard(async (a) => {
       if (!state.store.get(a.finding_id)) return fail(`Unknown finding id "${a.finding_id}". Use an id returned by record_finding.`)
-      let severity: Severity | undefined
+      let factors: SeverityFactors | undefined
       if (a.severity_factors !== undefined) {
         if (a.outcome !== 'confirmed') return fail('severity_factors are only accepted with outcome "confirmed".')
         const f = severityFactorsSchema.safeParse(a.severity_factors)
         if (!f.success) {
           return fail(`Invalid severity_factors: ${f.error.issues.map((x) => `${x.path.join('.') || '(root)'}: ${x.message}`).join('; ')}. Each factor must be an integer 0, 1, 2 or 3.`)
         }
-        severity = computeSeverity(f.data)
+        factors = f.data
       }
-      const finding = state.store.recordVerdict(a.finding_id, { agent: a.agent, outcome: a.outcome, reasoning: a.reasoning })
-      const previous = state.severities.get(a.finding_id)
-      if (severity) state.severities.set(a.finding_id, severity)
-      const kept = state.severities.get(a.finding_id)
-      // Overwrites are visible: the caller sees which severity the report will use and what it replaced.
-      return ok({
-        finding: kept ? { ...finding, severity: kept } : finding,
-        severity_kept: kept ?? null,
-        ...(severity && previous ? { severity_overwritten: previous } : {}),
-      })
+      const finding = state.store.recordVerdict(a.finding_id, { agent: a.agent, outcome: a.outcome, reasoning: a.reasoning, ...(factors ? { factors } : {}) })
+      // The store owns severity: highest band wins, and disagreement between verifiers is returned, not hidden.
+      return ok({ finding, severity: finding.severity ?? null, severity_disputed: finding.severity_disputed, severity_by_agent: finding.severity_by_agent })
     }),
 
     report: guard(async ({ format }) => {
       const profile = state.profile
       if (!profile) return fail('No target has been profiled in this session. Call profile_target first.')
-      const findings = state.store.list().map((f) => ({ ...f, ...(state.severities.has(f.id) ? { severity: state.severities.get(f.id) } : {}) }) as Finding)
+      const findings = state.store.list()
 
       const warnings: string[] = []
       await loadIndex().catch((e: unknown) => warnings.push(`The technique registry could not be loaded (${reason(e)}): nothing was examined.`))

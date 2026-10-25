@@ -1,8 +1,8 @@
 import type { DepthTier } from '../schema/technique.js'
 import { fingerprint, type FindingInput } from './fingerprint.js'
-import { BAND_RANK, type Severity } from './severity.js'
+import { BAND_RANK, computeSeverity, type Severity, type SeverityFactors } from './severity.js'
 
-export type Verdict = { agent: string; outcome: 'confirmed' | 'disproved' | 'ambiguous'; reasoning: string }
+export type Verdict = { agent: string; outcome: 'confirmed' | 'disproved' | 'ambiguous'; reasoning: string; factors?: SeverityFactors }
 export type Finding = FindingInput & {
   id: string
   status: 'candidate' | 'confirmed' | 'dropped' | 'needs-review'
@@ -13,7 +13,10 @@ export type Finding = FindingInput & {
   additional_locations: { line: number; reachability: string }[]
   // Every agent that reported this defect (dedupe merges reports), so none of them may verify it.
   reporting_agents: string[]
+  // Highest band among the verifiers' ratings; each verifier's own rating stays visible in severity_by_agent.
   severity?: Severity
+  severity_disputed: boolean
+  severity_by_agent: { agent: string; severity: Severity }[]
 }
 // reporting_agent lives here, not on FindingInput: it must not feed the fingerprint, or dedupe would stop collapsing.
 export type AddMeta = { depth_tier: DepthTier; reachability: string; reporting_agent: string }
@@ -29,6 +32,23 @@ function statusFrom(verdicts: Verdict[]): Finding['status'] {
 
 // One definition for storing and checking agent ids, so spelling variants of one id are one agent.
 const canonicalAgentId = (id: string): string => id.normalize('NFKC').trim().toLowerCase()
+
+// One rating per agent (a later verdict replaces that agent's earlier one, so revising is not a dispute with oneself).
+// Disproved verdicts contribute nothing and retire the agent's earlier rating: a dropped finding carries no severity from them.
+function rateSeverity(verdicts: Verdict[]): Pick<Finding, 'severity' | 'severity_disputed' | 'severity_by_agent'> {
+  const byAgent = new Map<string, { agent: string; severity: Severity }>()
+  for (const x of verdicts) {
+    const key = canonicalAgentId(x.agent)
+    if (x.outcome === 'disproved') byAgent.delete(key)
+    else if (x.factors) byAgent.set(key, { agent: x.agent, severity: computeSeverity(x.factors) })
+  }
+  const rated = [...byAgent.values()]
+  const top = rated.reduce<Severity | undefined>(
+    (best, r) => (!best || BAND_RANK[r.severity.band] > BAND_RANK[best.band] || (r.severity.band === best.band && r.severity.score > best.score) ? r.severity : best),
+    undefined,
+  )
+  return { ...(top ? { severity: top } : {}), severity_disputed: new Set(rated.map((r) => r.severity.band)).size > 1, severity_by_agent: rated }
+}
 
 const OUTCOMES: readonly string[] = ['confirmed', 'disproved', 'ambiguous']
 
@@ -69,6 +89,8 @@ export class FindingsStore {
       verdicts: [],
       additional_locations: [],
       reporting_agents: [reporter],
+      severity_disputed: false,
+      severity_by_agent: [],
     }
     this.findings.set(id, finding)
     return structuredClone(finding)
@@ -80,8 +102,10 @@ export class FindingsStore {
     // Checked first so a self-verdict is refused whatever it claims; trimmed so padding cannot evade it.
     if (f.reporting_agents.includes(canonicalAgentId(v.agent))) throw new Error(`reporting agent cannot verify its own finding: ${v.agent}`)
     if (!OUTCOMES.includes(v.outcome)) throw new Error(`unknown verdict outcome: ${String(v.outcome)}`)
-    f.verdicts.push({ agent: v.agent, outcome: v.outcome, reasoning: v.reasoning })
+    f.verdicts.push({ agent: v.agent, outcome: v.outcome, reasoning: v.reasoning, ...(v.factors ? { factors: structuredClone(v.factors) } : {}) })
     f.status = statusFrom(f.verdicts)
+    delete f.severity
+    Object.assign(f, rateSeverity(f.verdicts))
     return structuredClone(f)
   }
 

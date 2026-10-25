@@ -1,4 +1,4 @@
-import { FindingsStore, decideExitCode, type Finding, type Severity } from '@sentinel/core'
+import { FindingsStore, decideExitCode, type Finding, type Severity, type SeverityFactors } from '@sentinel/core'
 
 const base = { technique_id: 'sqli', file: 'a.ts', line: 40, snippet: 'query(a + b)' }
 const meta = { depth_tier: 'L1' as const, reachability: 'handler reads req.body' }
@@ -135,7 +135,7 @@ describe('reporting agent identity', () => {
 })
 
 const mk = (status: Finding['status'], band?: Severity['band']): Finding => {
-  const f: Finding = { ...base, ...meta, id: 'x', status, verdicts: [], additional_locations: [], reporting_agents: [] }
+  const f: Finding = { ...base, ...meta, id: 'x', status, verdicts: [], additional_locations: [], reporting_agents: [], severity_disputed: false, severity_by_agent: [] }
   if (band) {
     f.severity = { band, score: 0, factors: { exploitability: 0, reachability: 0, blast_radius: 0, data_sensitivity: 0 } }
   }
@@ -198,4 +198,73 @@ describe('decideExitCode', () => {
     expect(decideExitCode(fs, 'info')).toBe(0)
   })
   test('confirmed without severity does not trip', () => expect(decideExitCode([mk('confirmed')], 'info')).toBe(0))
+})
+
+describe('severity in the store', () => {
+  // The plan's HIGH {3,3,2,2} scores 26 (critical), not 21; {3,2,2,1} is 9+6+4+2 = 21 (high).
+  const HIGH = { exploitability: 3, reachability: 2, blast_radius: 2, data_sensitivity: 1 } as const
+  const LOW = { exploitability: 1, reachability: 0, blast_radius: 0, data_sensitivity: 0 } as const // 3 -> info
+  const MAX_FACTORS = { exploitability: 3, reachability: 3, blast_radius: 3, data_sensitivity: 3 } as const
+  const setup = (): { s: FindingsStore; id: string } => {
+    const s = new FindingsStore()
+    return { s, id: s.add(base, m).id }
+  }
+  const verdict = (agent: string, factors: SeverityFactors, outcome: 'confirmed' | 'disproved' = 'confirmed') => ({ agent, outcome, reasoning: 'r', factors })
+
+  test('a single verifier sets the severity', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('v1', HIGH))
+    expect(s.get(id)!.severity!.band).toBe('high')
+  })
+  test('the highest band wins across verifiers', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('v1', LOW))
+    s.recordVerdict(id, verdict('v2', HIGH))
+    expect(s.get(id)!.severity!.band).toBe('high')
+  })
+  test('differing verifiers set severity_disputed and keep both', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('v1', LOW))
+    s.recordVerdict(id, verdict('v2', HIGH))
+    const f = s.get(id)!
+    expect(f.severity_disputed).toBe(true)
+    expect(f.severity_by_agent.map((x) => x.agent).sort()).toEqual(['v1', 'v2'])
+  })
+  test('agreeing verifiers are not disputed', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('v1', HIGH))
+    s.recordVerdict(id, verdict('v2', HIGH))
+    expect(s.get(id)!.severity_disputed).toBe(false)
+  })
+  test('different factors landing in the same band are not disputed', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('v1', HIGH))
+    s.recordVerdict(id, verdict('v2', { exploitability: 3, reachability: 3, blast_radius: 1, data_sensitivity: 0 }))// 20 -> high
+    expect(s.get(id)!.severity_disputed).toBe(false)
+  })
+  test('factors on a disproved verdict do not raise the band of a dropped finding', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('v1', MAX_FACTORS, 'disproved'))
+    const f = s.get(id)!
+    expect(f.status).toBe('dropped')
+    expect(f.severity).toBeUndefined()
+  })
+  test('one agent revising its factors replaces its own entry and does not dispute itself', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, verdict('V1', LOW))
+    s.recordVerdict(id, verdict('v1', HIGH))
+    const f = s.get(id)!
+    expect(f.severity_by_agent).toHaveLength(1)
+    expect(f.severity_by_agent[0]!.severity.band).toBe('high')
+    expect(f.severity_disputed).toBe(false)
+    expect(f.severity!.band).toBe('high')
+  })
+  test('a verdict without factors leaves severity unset and undisputed', () => {
+    const { s, id } = setup()
+    s.recordVerdict(id, v('confirmed'))
+    const f = s.get(id)!
+    expect(f.severity).toBeUndefined()
+    expect(f.severity_disputed).toBe(false)
+    expect(f.severity_by_agent).toEqual([])
+  })
 })

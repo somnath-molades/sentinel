@@ -249,17 +249,19 @@ describe('verify_finding', () => {
       expect(JSON.stringify(rep.report)).not.toMatch(/traced to sink/)
     },
   )
-  test('returns the severity it kept, and makes an overwrite visible', async () => {
+  test('the highest band wins across verifiers, and the disagreement is returned', async () => {
     const { c, id } = await seeded()
     const first = json(await call(c, 'verify_finding', { finding_id: id, ...V, severity_factors: FACTORS }))
-    expect(first.severity_kept.band).toBe('critical')
+    expect(first.severity.band).toBe('critical')
+    expect(first.severity_disputed).toBe(false)
     expect(first.severity_overwritten).toBeUndefined()
     const low = { exploitability: 0, reachability: 0, blast_radius: 0, data_sensitivity: 0 }
     const second = json(await call(c, 'verify_finding', { finding_id: id, agent: 'v2', outcome: 'confirmed', reasoning: 'r', severity_factors: low }))
-    expect(second.severity_kept.band).toBe('info')
-    expect(second.severity_overwritten.band).toBe('critical')
+    expect(second.severity.band).toBe('critical') // a lower rating no longer replaces a higher one
+    expect(second.severity_disputed).toBe(true)
+    expect(second.severity_by_agent.map((x: { agent: string }) => x.agent)).toEqual(['v1', 'v2'])
     const third = json(await call(c, 'verify_finding', { finding_id: id, agent: 'v3', outcome: 'confirmed', reasoning: 'r' }))
-    expect(third.severity_kept.band).toBe('info') // no factors supplied: the kept one is reported, not hidden
+    expect(third.severity.band).toBe('critical') // no factors supplied: the standing severity is reported, not hidden
   })
   test('unknown finding id, unknown outcome and severity on a non-confirmation are tool errors', async () => {
     const { c, id } = await seeded()
