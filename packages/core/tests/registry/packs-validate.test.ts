@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse } from 'yaml'
-import { packSchema, parseTechnique, type PackManifest, type TechniqueEntry } from '@sentinel/core'
+import { DOMAINS, packSchema, parseTechnique, type PackManifest, type TechniqueEntry } from '@sentinel/core'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..')
 const packsRoot = resolve(repoRoot, 'registry/packs')

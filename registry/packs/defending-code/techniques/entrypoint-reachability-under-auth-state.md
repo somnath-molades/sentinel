@@ -3,6 +3,7 @@ id: entrypoint-reachability-under-auth-state
 vuln_classes: [reachability, broken-access-control]
 cwe: [CWE-862, CWE-863]
 depth_tier: L2
+domain: authorization
 stacks: [node, python, go, generic]
 fix_patterns:
   - stack: generic

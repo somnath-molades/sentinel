@@ -3,6 +3,7 @@ id: permissive-cors-with-credentials
 vuln_classes: [cors-misconfiguration, insecure-configuration]
 cwe: [CWE-942, CWE-346]
 depth_tier: L0
+domain: authorization
 stacks: [node, python, php, generic]
 fix_patterns:
   - stack: generic

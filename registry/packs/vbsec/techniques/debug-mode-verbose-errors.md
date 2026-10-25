@@ -3,6 +3,7 @@ id: debug-mode-verbose-errors
 vuln_classes: [information-disclosure, insecure-configuration]
 cwe: [CWE-489, CWE-209]
 depth_tier: L0
+domain: configuration
 stacks: [node, python, php, generic]
 fix_patterns:
   - stack: generic
