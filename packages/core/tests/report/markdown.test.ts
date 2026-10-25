@@ -1,6 +1,26 @@
 import type { SkipRecord } from '@sentinel/core'
 import { toMarkdown } from '@sentinel/core'
-import { findings, profile } from './helpers.js'
+import { agreed, disputed, droppedAfterDispute, findings, profile } from './helpers.js'
+
+test('markdown states the spread on a disputed finding', () => {
+  const md = toMarkdown([disputed], profile, { mode: 'full' })
+  expect(md).toMatch(/verifiers disagreed/i)
+  expect(md).toContain('high')
+  expect(md).toContain('low')
+  expect(md).toMatch(/verifiers disagreed.*`v1` rated high.*`v2` rated low/i)
+})
+
+test('the dispute line shows in pure-reasoning mode too', () => {
+  expect(toMarkdown([disputed], profile, { mode: 'pure-reasoning' })).toMatch(/verifiers disagreed/i)
+})
+
+test('an undisputed finding says nothing about disagreement', () => {
+  expect(toMarkdown([agreed], profile, { mode: 'full' })).not.toMatch(/disagreed/i)
+})
+
+test('a finding dropped after a dispute is not listed and reports no disagreement', () => {
+  expect(toMarkdown([droppedAfterDispute], profile, { mode: 'full' })).not.toMatch(/disagreed/i)
+})
 
 const REASONS: SkipRecord['reason'][] = ['minified', 'vendored', 'generated', 'binary', 'too-large', 'not-utf8', 'not-regular', 'unreadable', 'symlink']
 

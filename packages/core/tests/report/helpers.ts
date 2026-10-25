@@ -1,4 +1,4 @@
-import type { Finding, TargetProfile } from '@sentinel/core'
+import { FindingsStore, type Finding, type TargetProfile } from '@sentinel/core'
 
 export const profile: TargetProfile = {
   schema_version: 1,
@@ -47,3 +47,33 @@ export const findings: Finding[] = [
   mk('d1', 'dropped', { technique_id: 'csrf', file: 'src/form.ts', line: 3 }),
 ]
 export const confirmedCount = 2
+
+// Built through the real store so the fixtures cannot drift from what recordVerdict produces.
+// Scores (3*exploit + 3*reach + 2*blast + 2*data): HIGH = 9+6+2+4 = 21 (high, 17-23);
+// LOW = 3+3+0+0 = 6 (low, 4-9); HIGH2 = 9+6+4+4 = 23 (high). Disputed = high vs low; agreed = high vs high.
+const HIGH = { exploitability: 3, reachability: 2, blast_radius: 1, data_sensitivity: 2 } as const
+const HIGH2 = { exploitability: 3, reachability: 2, blast_radius: 2, data_sensitivity: 2 } as const
+const LOW = { exploitability: 1, reachability: 1, blast_radius: 0, data_sensitivity: 0 } as const
+function verified(ratings: [string, typeof HIGH | typeof HIGH2 | typeof LOW][]): Finding {
+  const store = new FindingsStore()
+  const { id } = store.add(
+    { technique_id: 'sqli', file: 'src/db.ts', line: 40, snippet: 'query(a + b)' },
+    { depth_tier: 'L1', reachability: 'handler reads req.body', reporting_agent: 'h1' },
+  )
+  for (const [agent, factors] of ratings) store.recordVerdict(id, { agent, outcome: 'confirmed', reasoning: 'checked the data flow', factors })
+  return store.list()[0]!
+}
+export const disputed: Finding = verified([['v1', HIGH], ['v2', LOW]])
+export const agreed: Finding = verified([['v1', HIGH], ['v2', HIGH2]])
+// Task 7's rule: a disproof wipes ratings. Used to show a reporter never sees a dispute on a dropped finding.
+export const droppedAfterDispute: Finding = (() => {
+  const store = new FindingsStore()
+  const { id } = store.add(
+    { technique_id: 'sqli', file: 'src/db.ts', line: 40, snippet: 'query(a + b)' },
+    { depth_tier: 'L1', reachability: 'handler reads req.body', reporting_agent: 'h1' },
+  )
+  store.recordVerdict(id, { agent: 'v1', outcome: 'confirmed', reasoning: 'r', factors: HIGH })
+  store.recordVerdict(id, { agent: 'v2', outcome: 'confirmed', reasoning: 'r', factors: LOW })
+  store.recordVerdict(id, { agent: 'v3', outcome: 'disproved', reasoning: 'r' })
+  return store.list()[0]!
+})()

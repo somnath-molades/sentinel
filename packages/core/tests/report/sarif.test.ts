@@ -2,7 +2,21 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { Ajv } from 'ajv'
 import { toSarif } from '@sentinel/core'
-import { confirmedCount, findings, profile } from './helpers.js'
+import { agreed, confirmedCount, disputed, droppedAfterDispute, findings, profile } from './helpers.js'
+
+test('SARIF carries the dispute on the result', () => {
+  const props = toSarif([disputed], profile, { mode: 'full' }).runs[0]!.results[0]!.properties
+  expect(props.severity_disputed).toBe(true)
+  expect(props.severity_by_agent).toEqual([
+    { agent: 'v1', band: 'high', score: 21 },
+    { agent: 'v2', band: 'low', score: 6 },
+  ])
+})
+
+test('an agreed finding is not marked disputed in SARIF, and a dropped one has no result', () => {
+  expect(toSarif([agreed], profile, { mode: 'full' }).runs[0]!.results[0]!.properties.severity_disputed).toBe(false)
+  expect(toSarif([droppedAfterDispute], profile, { mode: 'full' }).runs[0]!.results).toEqual([])
+})
 
 test('emits SARIF 2.1.0 with one result per confirmed finding', () => {
   const log = toSarif(findings, profile, { mode: 'full' })
@@ -53,4 +67,7 @@ test('validates against the SARIF 2.1.0 JSON schema', () => {
   // The validator must be able to say no.
   expect(validate({ ...log, version: '2.0.0' })).toBe(false)
   expect(validate(toSarif([], profile, { mode: 'full' }))).toBe(true)
+  // The dispute properties must not make the official schema reject the run.
+  const withDispute = toSarif([disputed], profile, { mode: 'full' })
+  expect(validate(withDispute), JSON.stringify(validate.errors)).toBe(true)
 })
