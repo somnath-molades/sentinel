@@ -244,7 +244,10 @@ export function createSession(opts: SessionOptions = {}): Session {
 
     plan_hunts: guard<void>(async () => {
       if (!state.profile) return fail('No target has been profiled in this session. Call profile_target first.')
-      return ok({ assignments: planHunts(state.profile, await loadIndex()) })
+      const assignments = planHunts(state.profile, await loadIndex())
+      // Same record select_techniques makes, so report has one coverage-warning path for both.
+      for (const a of assignments) state.selections.set(`the ${a.domain} domain`, a.coverage)
+      return ok({ assignments, ...(registryErrors.length ? { registry_warning: registryWarning() } : {}) })
     }),
 
     record_finding: guard(async ({ reporting_agent, findings }) => {

@@ -108,6 +108,37 @@ describe('plan_hunts', () => {
     expect(assignments).toHaveLength(10)
     const allowed = ['coverage', 'domain', 'hotspot_paths', 'reason', 'techniques']
     for (const a of assignments) expect(Object.keys(a).every((k) => allowed.includes(k))).toBe(true)
+    for (const a of assignments) {
+      expect(typeof a.domain).toBe('string')
+      expect(Array.isArray(a.hotspot_paths)).toBe(true)
+    }
+  })
+  test('a registry entry that failed to load is reported beside the assignments that its absence emptied', async () => {
+    const reg = await mkdtemp(join(tmpdir(), 'sentinel-mcp-test-reg-'))
+    try {
+      await cp(join(process.cwd(), 'registry'), reg, { recursive: true })
+      // the only dependencies technique
+      await writeFile(join(reg, 'packs', 'vbsec', 'techniques', 'vulnerable-dependency-version.md'), 'not a technique')
+      const c = await connect({ registryRoot: reg })
+      await call(c, 'profile_target', { target: dir })
+      const out = json(await call(c, 'plan_hunts', {}))
+      const deps = out.assignments.find((a: { domain: string }) => a.domain === 'dependencies')
+      expect(deps.techniques).toEqual([])
+      expect(deps.reason).toMatch(/no technique in the registry/)
+      expect(out.registry_warning).toMatch(/failed to load.*vulnerable-dependency-version/)
+    } finally {
+      await rm(reg, { recursive: true, force: true })
+    }
+  })
+  test('profile, plan_hunts, report: no "never called" warning, and uncovered domains reach the report', async () => {
+    const c = await connect()
+    await call(c, 'profile_target', { target: dir })
+    const { assignments } = json(await call(c, 'plan_hunts', {}))
+    const none = assignments.find((a: { coverage: string }) => a.coverage === 'none')
+    expect(none).toBeDefined()
+    const warnings: string = json(await call(c, 'report', {})).coverage_warnings.join('\n')
+    expect(warnings).not.toMatch(/never called/)
+    expect(warnings).toMatch(new RegExp(`No techniques exist for the ${none.domain} domain`))
   })
   test('a domain with nothing to do arrives present, with an empty techniques array and a reason', async () => {
     const reg = await mkdtemp(join(tmpdir(), 'sentinel-mcp-test-empty-reg-'))
