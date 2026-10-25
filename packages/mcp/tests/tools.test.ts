@@ -281,6 +281,7 @@ describe('select_techniques coverage signal', () => {
 describe('record_finding', () => {
   test('one bad finding does not abort the batch; rejections say which and why', async () => {
     const c = await connect()
+    await call(c, 'profile_target', { target: dir })
     const r = await call(c, 'record_finding', {
       reporting_agent: 'hunter-1',
       findings: [F, { ...F, snippet: '   ' }, { ...F, line: 9, snippet: 'other()' }, { ...F, depth_tier: 'L9' }, { ...F, technique_id: 'nope' }, 'garbage', { ...F, file: '../../etc/passwd' }],
@@ -294,12 +295,14 @@ describe('record_finding', () => {
   })
   test('a batch where every finding is rejected is an error, not an empty success', async () => {
     const c = await connect()
+    await call(c, 'profile_target', { target: dir })
     const r = await call(c, 'record_finding', { reporting_agent: 'hunter-1', findings: [{ ...F, reachability: '' }] })
     expect(r.isError).toBe(true)
     expect(json(r).rejected).toHaveLength(1)
   })
   test('additional_locations survive: a duplicate sink at another line is carried, not dropped', async () => {
     const c = await connect()
+    await call(c, 'profile_target', { target: dir })
     await call(c, 'record_finding', { reporting_agent: 'hunter-1', findings: [F] })
     const out = json(await call(c, 'record_finding', { reporting_agent: 'hunter-1', findings: [{ ...F, line: 40, reachability: 'second sink' }] }))
     expect(out.accepted[0].additional_locations).toEqual([{ line: 40, reachability: 'second sink' }])
@@ -392,6 +395,7 @@ describe('record_finding reporting_agent', () => {
   })
   test('a verifier cannot later report the finding it verified', async () => {
     const c = await connect()
+    await call(c, 'profile_target', { target: dir })
     const id = json(await call(c, 'record_finding', { reporting_agent: 'hunter-1', findings: [F] })).accepted[0].id as string
     await call(c, 'verify_finding', { finding_id: id, agent: 'verifier-1', outcome: 'confirmed', reasoning: 'r' })
     const r = await call(c, 'record_finding', { reporting_agent: 'verifier-1', findings: [F] })

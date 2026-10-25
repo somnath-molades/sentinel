@@ -110,11 +110,17 @@ export const inputs = {
 type State = {
   target?: ResolvedTarget
   profile?: TargetProfile
+  /** Server-side only, to validate paths agents send back (never put in a tool output, spec 5.1). Walker form: relative, '/', case-sensitive. */
+  walked: Set<string>
   store: FindingsStore
   selections: Map<string, 'exact' | 'wildcard-only' | 'none'>
   rejected: number
 }
-const fresh = (): Omit<State, 'target' | 'profile'> => ({ store: new FindingsStore(), selections: new Map(), rejected: 0 })
+const fresh = (): Omit<State, 'target' | 'profile'> => ({ walked: new Set(), store: new FindingsStore(), selections: new Map(), rejected: 0 })
+
+// Same form the walker emits: '/' separators, no leading './' or empty segments. Case is NOT folded: the walker lists exact names,
+// and a case variant would become a different SARIF URI than the file Sentinel read.
+const walkedForm = (p: string): string => p.split(/[\\/]/).filter((s) => s !== '' && s !== '.').join('/')
 
 export type Session = {
   profile_target(a: { target: string }): Promise<ToolResult>
@@ -196,7 +202,9 @@ export function createSession(opts: SessionOptions = {}): Session {
           await cleanup()
           return fail(`Target refused (attestation): ${refusal}`)
         }
-        const profile = await profileTarget(r.value) // uses r.value.root as resolved; the input path is never re-resolved
+        const walked = new Set<string>()
+        const profile = await profileTarget(r.value, {}, (p) => walked.add(p)) // uses r.value.root as resolved; the input path is never re-resolved
+        state.walked = walked
         state.target = r.value
         state.profile = profile
         return ok({ ...note, profile, stacks: stackInfo(profile) })
@@ -251,6 +259,7 @@ export function createSession(opts: SessionOptions = {}): Session {
     }),
 
     record_finding: guard(async ({ reporting_agent, findings }) => {
+      if (!state.profile) return fail('No target has been profiled in this session. Call profile_target first.')
       const idx = await loadIndex()
       const known = new Set(idx.techniques.map((t) => t.id))
       const accepted: Finding[] = []
@@ -260,8 +269,10 @@ export function createSession(opts: SessionOptions = {}): Session {
         if (!p.success) return rejected.push({ index: i, reason: p.error.issues.map((x) => `${x.path.join('.') || '(finding)'}: ${x.message}`).join('; ') })
         const v = p.data
         if (!known.has(v.technique_id)) return rejected.push({ index: i, reason: `technique_id: unknown technique "${v.technique_id}"${registryErrors.length ? ` (note: ${registryWarning()})` : ''}` })
+        const file = walkedForm(v.file)
+        if (!state.walked.has(file)) return rejected.push({ index: i, reason: `file: "${v.file}" is not in the set of files Sentinel walked in this target; refusing a path no one read` })
         try {
-          accepted.push(state.store.add({ technique_id: v.technique_id, file: v.file, line: v.line, snippet: v.snippet }, { depth_tier: v.depth_tier, reachability: v.reachability, reporting_agent }))
+          accepted.push(state.store.add({ technique_id: v.technique_id, file, line: v.line, snippet: v.snippet }, { depth_tier: v.depth_tier, reachability: v.reachability, reporting_agent }))
         } catch (e) {
           rejected.push({ index: i, reason: reason(e) }) // the store's own contract check; still per finding
         }
