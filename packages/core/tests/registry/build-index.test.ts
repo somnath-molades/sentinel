@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -50,10 +50,17 @@ test('every stack string in the registry belongs to the fixed vocabulary', () =>
 })
 
 test('an unreadable technique file is reported and the rest still index', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'sentinel-idx-'))
-  cpSync(fixture('registry/one-bad-entry'), root, { recursive: true })
-  mkdirSync(join(root, 'packs/fixture-pack/techniques/unreadable.md')) // EISDIR on read
-  const { index, errors } = await buildIndex(root)
-  expect(errors.map((e) => e.file).join()).toContain('unreadable.md')
-  expect(index.techniques.map((t) => t.id)).toEqual(['sql-injection-string-concat'])
+  // Not prefixed `sentinel-`: the clone-cleanup tests in other files assert on a listing of
+  // os.tmpdir() filtered by that prefix, and a fixture left here showed up as a phantom leaked
+  // clone. Removed afterwards too — leaving these behind accumulated 50 of them over the phase.
+  const root = mkdtempSync(join(tmpdir(), 'idx-fixture-'))
+  try {
+    cpSync(fixture('registry/one-bad-entry'), root, { recursive: true })
+    mkdirSync(join(root, 'packs/fixture-pack/techniques/unreadable.md')) // EISDIR on read
+    const { index, errors } = await buildIndex(root)
+    expect(errors.map((e) => e.file).join()).toContain('unreadable.md')
+    expect(index.techniques.map((t) => t.id)).toEqual(['sql-injection-string-concat'])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import type { GhRunner } from '../src/tools.js'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
 import { SENTINEL_CORE_VERSION, attestationHash, loadAuthorization, readConsent, writeConsent } from '@sentinel/core'
 import { createSentinelServer } from '../src/server.js'
 
@@ -51,6 +51,27 @@ const json = (r: Res): any => JSON.parse(r.content[0]!.text)
 
 const F = { technique_id: 'sql-injection-built-query-string', file: 'src/app.js', line: 3, snippet: 'db.query("x" + id)', depth_tier: 'L1', reachability: 'reached from GET /u' }
 const FACTORS = { exploitability: 3, reachability: 3, blast_radius: 2, data_sensitivity: 2 }
+
+// The clone-cleanup tests below assert on a listing of os.tmpdir(), but other test
+// FILES create `sentinel-*` directories there too (the CLI's scan tests do exactly
+// this), and vitest runs files in parallel — so the listing races them and the
+// assertion fails on a directory that is another file's live clone, not a leak.
+// Give this file its own private tmp root for the duration. os.tmpdir() reads the
+// environment on every call, and the scope lock resolves it at clone time, so both
+// follow the redirect. The root's name deliberately avoids the `sentinel-` prefix,
+// or it would appear in the other file's listing and move the flake rather than fix it.
+let tmpRoot: string
+let prevTmpdir: string | undefined
+beforeAll(async () => {
+  prevTmpdir = process.env.TMPDIR
+  tmpRoot = await mkdtemp(join(realpathSync(tmpdir()), 'mcp-tmproot-'))
+  process.env.TMPDIR = tmpRoot
+})
+afterAll(async () => {
+  if (prevTmpdir === undefined) delete process.env.TMPDIR
+  else process.env.TMPDIR = prevTmpdir
+  await rm(tmpRoot, { recursive: true, force: true })
+})
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'sentinel-mcp-test-'))

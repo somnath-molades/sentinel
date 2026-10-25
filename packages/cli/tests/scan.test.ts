@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest'
 import * as core from '@sentinel/core'
 import { removeClone } from '../src/commands/scan.js'
 import { run } from '../src/index.js'
@@ -20,6 +20,25 @@ const root = fileURLToPath(new URL('../../../', import.meta.url))
 const fixture = (...p: string[]): string => join(root, 'tests/fixtures', ...p)
 const express = fixture('targets/express-vulnerable')
 const badRegistry = fixture('registry/one-bad-entry')
+
+// The clone-cleanup tests below assert on a listing of os.tmpdir(), but other test FILES create `sentinel-*`
+// directories there too (the MCP server's tests do exactly this), and vitest runs files in parallel — so the listing
+// races them and the assertion fails on a directory that is another file's live clone, not a leak. Give this file its
+// own private tmp root for the duration. os.tmpdir() reads the environment on every call, and the scope lock resolves
+// it at clone time, so both follow the redirect. The root's name deliberately avoids the `sentinel-` prefix, or it
+// would appear in the other file's listing and move the flake rather than fix it.
+let tmpRoot: string
+let prevTmpdir: string | undefined
+beforeAll(async () => {
+  prevTmpdir = process.env.TMPDIR
+  tmpRoot = await mkdtemp(join(realpathSync(tmpdir()), 'cli-tmproot-'))
+  process.env.TMPDIR = tmpRoot
+})
+afterAll(async () => {
+  if (prevTmpdir === undefined) delete process.env.TMPDIR
+  else process.env.TMPDIR = prevTmpdir
+  await rm(tmpRoot, { recursive: true, force: true })
+})
 
 // Scans need an attestation (spec 9.2). By default each scan is preceded by a real `init <target>` in a private working
 // directory; pass { attest: false } to scan unattested. The directory holds the consent record, never the target.
