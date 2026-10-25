@@ -1,0 +1,8 @@
+id: vbsec
+name: VBsec vulnerability rules
+source_url: https://github.com/tanviet12/vbsec
+license: MIT
+ingestion_mode: vendored
+upstream_commit: 1b86c27936d350d1a9ca67f044341262d4219d4e
+coverage: [L0, L1]
+trust_tier: community

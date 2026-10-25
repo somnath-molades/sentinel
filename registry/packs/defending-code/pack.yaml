@@ -1,0 +1,8 @@
+id: defending-code
+name: Defending Code reference harness
+source_url: https://github.com/anthropics/defending-code-reference-harness
+license: Apache-2.0
+ingestion_mode: vendored
+upstream_commit: d3bea6b5793b5f3d59a75ebe69a58efa88383145
+coverage: [L0, L1, L2]
+trust_tier: reviewed

@@ -10,4 +10,24 @@ packs are vendored.
 
 Vendored upstream content:
 
-(none yet)
+Each entry below follows this format. Append one block per vendored pack, in
+the same shape, separated by a blank line. Lines beginning with "#" are
+comments and are not entries.
+
+    # Pack:      <registry pack id, matching registry/packs/<id>/pack.yaml>
+    # Source:    <upstream repository URL>
+    # License:   <SPDX identifier, as read from the upstream LICENSE file>
+    # Copyright: <copyright holder, as named in that LICENSE file>
+    # Commit:    <full upstream commit SHA the content was taken from>
+
+Pack:      vbsec
+Source:    https://github.com/tanviet12/vbsec
+License:   MIT
+Copyright: Copyright (c) 2026 Bùi Tấn Việt
+Commit:    1b86c27936d350d1a9ca67f044341262d4219d4e
+
+Pack:      defending-code
+Source:    https://github.com/anthropics/defending-code-reference-harness
+License:   Apache-2.0
+Copyright: Copyright 2026 Anthropic PBC
+Commit:    d3bea6b5793b5f3d59a75ebe69a58efa88383145
