@@ -12,7 +12,12 @@ export type SarifResult = {
   message: { text: string }
   locations: SarifLocation[]
   partialFingerprints: { sentinelFindingId: string }
-  properties: { severity?: Severity; depth_tier: string }
+  properties: {
+    severity?: Severity
+    depth_tier: string
+    severity_disputed: boolean
+    severity_by_agent: { agent: string; band: Severity['band']; score: number }[]
+  }
 }
 export type SarifLog = {
   version: '2.1.0'
@@ -57,7 +62,12 @@ export function toSarif(findings: Finding[], profile: TargetProfile, opts: { mod
           message: { text: `${f.technique_id} in ${f.file}: ${f.reachability}` },
           locations: [loc(f.file, f.line), ...f.additional_locations.map((a) => loc(f.file, a.line, a.reachability))],
           partialFingerprints: { sentinelFindingId: f.id },
-          properties: { ...(f.severity ? { severity: f.severity } : {}), depth_tier: f.depth_tier },
+          properties: {
+            ...(f.severity ? { severity: f.severity } : {}),
+            depth_tier: f.depth_tier,
+            severity_disputed: f.severity_disputed,
+            severity_by_agent: f.severity_by_agent.map((r) => ({ agent: r.agent, band: r.severity.band, score: r.severity.score })),
+          },
         })),
         properties: {
           mode: opts.mode,

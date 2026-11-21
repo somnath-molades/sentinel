@@ -1,0 +1,29 @@
+{
+  "reporting_agent": "hunter-integration-1",
+  "findings": [
+    {
+      "technique_id": "sql-injection-built-query-string",
+      "file": "src/server.js",
+      "line": 23,
+      "snippet": "const rows = await db.query(\"SELECT * FROM users WHERE name = '\" + req.query.name + \"'\")",
+      "depth_tier": "L1",
+      "reachability": "Entry point is the registered Express route GET /users (src/server.js:22), which has no auth middleware. The handler's first statement reads req.query.name and concatenates it into the SQL text passed as the single string argument to db.query on the pg Pool created at src/server.js:9. No validation, binding or escaping occurs between the read and the call; source and sink are the same expression on this line."
+    },
+    {
+      "technique_id": "sql-injection-built-query-string",
+      "file": "src/server.js",
+      "line": 33,
+      "snippet": "await db.query('DELETE FROM users WHERE id = ' + req.params.id)",
+      "depth_tier": "L1",
+      "reachability": "Entry point is the registered Express route DELETE /users/:id (src/server.js:32), which has no auth middleware. The :id path segment arrives as req.params.id and is concatenated directly into the DELETE statement passed as the single string argument to db.query. No cast to integer, no allowlist, no parameter binding on the way; source and sink are the same expression on this line."
+    },
+    {
+      "technique_id": "sql-injection-built-query-string",
+      "file": "src/server.js",
+      "line": 28,
+      "snippet": "const rows = await db.query('SELECT * FROM users WHERE name = $1', [req.query.name])",
+      "depth_tier": "L1",
+      "reachability": "HARNESS-INJECTED CONTROL, not produced by the hunter. Deliberately false claim: req.query.name is attacker-controlled and reaches a db.query call, so the query is built from untrusted input."
+    }
+  ]
+}

@@ -1,16 +1,17 @@
 import { rm } from 'node:fs/promises'
-import { dirname, isAbsolute } from 'node:path'
+import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   DEPTH_TIERS,
   FindingsStore,
+  PolicyRefusal,
   attestationRefusal,
   loadAuthorization,
   KNOWN_LANGUAGES,
   STACKS,
   buildIndex,
-  computeSeverity,
   coverageGap,
+  planHunts,
   profileTarget,
   resolveTarget,
   selectTechniques,
@@ -18,7 +19,7 @@ import {
   toMarkdown,
   toSarif,
 } from '@sentinel/core'
-import type { Finding, RegistryIndex, ResolvedTarget, SchemaError, Severity, TargetProfile } from '@sentinel/core'
+import type { Finding, RegistryIndex, ResolvedTarget, SchemaError, SeverityFactors, TargetProfile } from '@sentinel/core'
 import { z } from 'zod'
 
 // Every value in this file that came from an agent is untrusted. Handlers validate and translate; all
@@ -80,6 +81,9 @@ const findingSchema = z.object({
   reachability: z.string().refine(nonBlank, 'reachability must be a non-empty reason'),
 })
 
+// ASCII-only on purpose: zero-width and lookalike characters are rejected at the door, so they cannot dodge the store's self-verification gate.
+const agentId = z.string().regex(/^[\w.:-]+$/, 'agent id may only contain letters, digits, and . : _ -')
+
 /** Input shapes for protocol registration. Findings and severity factors are validated per item in the handler. */
 export const inputs = {
   profile_target: { target: z.string().describe('Local directory path (or a GitHub repo URL if the operator enabled it).') },
@@ -90,10 +94,13 @@ export const inputs = {
     depth_tier: z.enum(DEPTH_TIERS).optional(),
     limit: z.number().int().positive().optional(),
   },
-  record_finding: { findings: z.array(z.unknown()).describe('Findings: {technique_id, file (relative), line, snippet, depth_tier, reachability}. Each is validated separately.') },
+  record_finding: {
+    reporting_agent: agentId,
+    findings: z.array(z.unknown()).describe('Findings: {technique_id, file (relative), line, snippet, depth_tier, reachability}. Each is validated separately.'),
+  },
   verify_finding: {
     finding_id: z.string().min(1),
-    agent: z.string().min(1),
+    agent: agentId,
     outcome: z.enum(['confirmed', 'disproved', 'ambiguous']),
     reasoning: z.string().min(1),
     severity_factors: z.unknown().optional().describe('Only with outcome "confirmed": {exploitability, reachability, blast_radius, data_sensitivity}, each an integer 0..3.'),
@@ -104,18 +111,27 @@ export const inputs = {
 type State = {
   target?: ResolvedTarget
   profile?: TargetProfile
+  /** Server-side only, to validate paths agents send back (never put in a tool output, spec 5.1). Walker form: relative, '/', case-sensitive. */
+  walked: Set<string>
   store: FindingsStore
-  severities: Map<string, Severity>
   selections: Map<string, 'exact' | 'wildcard-only' | 'none'>
   rejected: number
+  /** Hunt ledger: domains plan_hunts assigned, and domains for which some agent reported an accepted finding. */
+  planned: Set<string>
+  reported: Set<string>
 }
-const fresh = (): Omit<State, 'target' | 'profile'> => ({ store: new FindingsStore(), severities: new Map(), selections: new Map(), rejected: 0 })
+const fresh = (): Omit<State, 'target' | 'profile'> => ({ walked: new Set(), store: new FindingsStore(), selections: new Map(), rejected: 0, planned: new Set(), reported: new Set() })
+
+// Same form the walker emits: '/' separators, no leading './' or empty segments. Case is NOT folded: the walker lists exact names,
+// and a case variant would become a different SARIF URI than the file Sentinel read.
+const walkedForm = (p: string): string => p.split(/[\\/]/).filter((s) => s !== '' && s !== '.').join('/')
 
 export type Session = {
   profile_target(a: { target: string }): Promise<ToolResult>
   select_techniques(a: { stack?: string; language?: string; vuln_class?: string; depth_tier?: (typeof DEPTH_TIERS)[number]; limit?: number }): Promise<ToolResult>
-  record_finding(a: { findings: unknown[] }): Promise<ToolResult>
+  record_finding(a: { reporting_agent: string; findings: unknown[] }): Promise<ToolResult>
   verify_finding(a: { finding_id: string; agent: string; outcome: 'confirmed' | 'disproved' | 'ambiguous'; reasoning: string; severity_factors?: unknown }): Promise<ToolResult>
+  plan_hunts(): Promise<ToolResult>
   report(a: { format?: 'markdown' | 'sarif' }): Promise<ToolResult>
   /** Deletes the GitHub clone, if any. Safe to call repeatedly. */
   cleanup(): Promise<void>
@@ -168,7 +184,7 @@ export function createSession(opts: SessionOptions = {}): Session {
       try {
         return await fn(a)
       } catch (e) {
-        return fail(`Internal error: ${reason(e)}`)
+        return fail(e instanceof PolicyRefusal ? `Refused: ${e.message}` : `Internal error: ${reason(e)}`)
       }
     }
 
@@ -190,7 +206,9 @@ export function createSession(opts: SessionOptions = {}): Session {
           await cleanup()
           return fail(`Target refused (attestation): ${refusal}`)
         }
-        const profile = await profileTarget(r.value) // uses r.value.root as resolved; the input path is never re-resolved
+        const walked = new Set<string>()
+        const profile = await profileTarget(r.value, {}, (p) => walked.add(p)) // uses r.value.root as resolved; the input path is never re-resolved
+        state.walked = walked
         state.target = r.value
         state.profile = profile
         return ok({ ...note, profile, stacks: stackInfo(profile) })
@@ -236,7 +254,20 @@ export function createSession(opts: SessionOptions = {}): Session {
       })
     }),
 
-    record_finding: guard(async ({ findings }) => {
+    plan_hunts: guard<void>(async () => {
+      if (!state.profile || !state.target) return fail('No target has been profiled in this session. Call profile_target first.')
+      const assignments = planHunts(state.profile, await loadIndex())
+      // Same record select_techniques makes, so report has one coverage-warning path for both.
+      for (const a of assignments) {
+        state.selections.set(`the ${a.domain} domain`, a.coverage)
+        state.planned.add(a.domain)
+      }
+      return ok({ registry_root: resolve(registryRoot), target_root: resolve(state.target.root), assignments, ...(registryErrors.length ? { registry_warning: registryWarning() } : {}) })
+    }),
+
+    record_finding: guard(async ({ reporting_agent, findings }) => {
+      if (!state.profile) return fail('No target has been profiled in this session. Call profile_target first.')
+      const truncated = state.profile.truncated
       const idx = await loadIndex()
       const known = new Set(idx.techniques.map((t) => t.id))
       const accepted: Finding[] = []
@@ -246,8 +277,15 @@ export function createSession(opts: SessionOptions = {}): Session {
         if (!p.success) return rejected.push({ index: i, reason: p.error.issues.map((x) => `${x.path.join('.') || '(finding)'}: ${x.message}`).join('; ') })
         const v = p.data
         if (!known.has(v.technique_id)) return rejected.push({ index: i, reason: `technique_id: unknown technique "${v.technique_id}"${registryErrors.length ? ` (note: ${registryWarning()})` : ''}` })
+        const file = walkedForm(v.file)
+        if (!state.walked.has(file)) {
+          // Strict on purpose, but honest: the file may exist and the agent may have read it; Sentinel's own coverage limits put it outside the set.
+          const cut = truncated ? ' This scan hit its file limit, so files late in the tree were not walked.' : ''
+          return rejected.push({ index: i, reason: `file: "${v.file}" is not among the files Sentinel walked in this target. It may exist but not have been covered: files that were skipped (too large, minified, binary, unreadable, a symlink) or lie past the scan's file limit are not in the walked set, and a finding on one cannot be recorded.${cut}` })
+        }
         try {
-          accepted.push(state.store.add({ technique_id: v.technique_id, file: v.file, line: v.line, snippet: v.snippet }, { depth_tier: v.depth_tier, reachability: v.reachability }))
+          accepted.push(state.store.add({ technique_id: v.technique_id, file, line: v.line, snippet: v.snippet }, { depth_tier: v.depth_tier, reachability: v.reachability, reporting_agent }))
+          state.reported.add(idx.techniques.find((t) => t.id === v.technique_id)!.domain) // known: checked above
         } catch (e) {
           rejected.push({ index: i, reason: reason(e) }) // the store's own contract check; still per finding
         }
@@ -261,31 +299,24 @@ export function createSession(opts: SessionOptions = {}): Session {
 
     verify_finding: guard(async (a) => {
       if (!state.store.get(a.finding_id)) return fail(`Unknown finding id "${a.finding_id}". Use an id returned by record_finding.`)
-      let severity: Severity | undefined
+      let factors: SeverityFactors | undefined
       if (a.severity_factors !== undefined) {
         if (a.outcome !== 'confirmed') return fail('severity_factors are only accepted with outcome "confirmed".')
         const f = severityFactorsSchema.safeParse(a.severity_factors)
         if (!f.success) {
           return fail(`Invalid severity_factors: ${f.error.issues.map((x) => `${x.path.join('.') || '(root)'}: ${x.message}`).join('; ')}. Each factor must be an integer 0, 1, 2 or 3.`)
         }
-        severity = computeSeverity(f.data)
+        factors = f.data
       }
-      const finding = state.store.recordVerdict(a.finding_id, { agent: a.agent, outcome: a.outcome, reasoning: a.reasoning })
-      const previous = state.severities.get(a.finding_id)
-      if (severity) state.severities.set(a.finding_id, severity)
-      const kept = state.severities.get(a.finding_id)
-      // Overwrites are visible: the caller sees which severity the report will use and what it replaced.
-      return ok({
-        finding: kept ? { ...finding, severity: kept } : finding,
-        severity_kept: kept ?? null,
-        ...(severity && previous ? { severity_overwritten: previous } : {}),
-      })
+      const finding = state.store.recordVerdict(a.finding_id, { agent: a.agent, outcome: a.outcome, reasoning: a.reasoning, ...(factors ? { factors } : {}) })
+      // The store owns severity: highest band wins, and disagreement between verifiers is returned, not hidden.
+      return ok({ finding, severity: finding.severity ?? null, severity_disputed: finding.severity_disputed, severity_by_agent: finding.severity_by_agent })
     }),
 
     report: guard(async ({ format }) => {
       const profile = state.profile
       if (!profile) return fail('No target has been profiled in this session. Call profile_target first.')
-      const findings = state.store.list().map((f) => ({ ...f, ...(state.severities.has(f.id) ? { severity: state.severities.get(f.id) } : {}) }) as Finding)
+      const findings = state.store.list()
 
       const warnings: string[] = []
       await loadIndex().catch((e: unknown) => warnings.push(`The technique registry could not be loaded (${reason(e)}): nothing was examined.`))
@@ -296,6 +327,9 @@ export function createSession(opts: SessionOptions = {}): Session {
         if (match === 'none') warnings.push(`No techniques exist for ${what}: nothing was examined for it.`)
         else if (match === 'wildcard-only') warnings.push(`Only generic techniques exist for ${what}: partial coverage.`)
       }
+      // From the ledger, not the registry: `exact` coverage only means a technique exists, not that anyone hunted with it.
+      const silent = [...state.planned].filter((d) => !state.reported.has(d))
+      if (silent.length) warnings.push(`Planned but no agent reported: ${silent.join(', ')}. Sentinel does not know whether a hunter ran for these domains, so their silence is not a clean result.`)
       warnings.push(...stackInfo(profile).warnings)
       if (state.rejected) warnings.push(`${state.rejected} finding(s) were rejected at ingest and are NOT in this report.`)
 

@@ -3,6 +3,7 @@ id: hardcoded-secret-in-source
 vuln_classes: [secret-exposure]
 cwe: [CWE-798]
 depth_tier: L0
+domain: secrets
 stacks: [node, python, php, go, generic]
 fix_patterns:
   - stack: generic

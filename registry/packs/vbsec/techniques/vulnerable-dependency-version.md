@@ -3,6 +3,7 @@ id: vulnerable-dependency-version
 vuln_classes: [vulnerable-dependency, supply-chain]
 cwe: [CWE-1395, CWE-1104]
 depth_tier: L0
+domain: dependencies
 stacks: [node, python, php, go, generic]
 fix_patterns:
   - stack: node

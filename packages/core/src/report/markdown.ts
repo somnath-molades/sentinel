@@ -51,6 +51,8 @@ function findingBlock(f: Finding, label: string, verified: boolean): string {
   if (s) {
     const fa = s.factors
     out.push(`${verified ? 'Rated' : 'Tentative rating, only if it is real:'} **${s.band}**: it is ${EASE[fa.exploitability]}, ${EXPOSURE[fa.reachability]}, ${SPREAD[fa.blast_radius]}, and involves ${DATA[fa.data_sensitivity]}.`)
+    // Plain-voice doubt only; the bands and scores stay in the technical line. False for dropped findings.
+    if (f.severity_disputed) out.push('Our checkers did not agree on how serious this is: at least one of them rated it lower. We show the highest rating, so treat it as a careful worst case rather than a settled number.')
   } else {
     out.push('This finding has not been given a severity rating.')
   }
@@ -62,6 +64,10 @@ function findingBlock(f: Finding, label: string, verified: boolean): string {
   if (s) {
     const fa = s.factors
     out.push(`- Severity: ${s.band}, score ${s.score} (exploitability ${fa.exploitability}/3, reachability ${fa.reachability}/3, blast radius ${fa.blast_radius}/3, data sensitivity ${fa.data_sensitivity}/3)`)
+  }
+  // severity_disputed is false for a dropped finding (the store clears its ratings), so this cannot fire for one.
+  if (f.severity_disputed) {
+    out.push(`- Severity disputed: verifiers disagreed on how severe this is: ${f.severity_by_agent.map((r) => `${inline(r.agent)} rated ${r.severity.band} (score ${r.severity.score})`).join(', ')}. The highest rating is the one shown above.`)
   }
   for (const a of f.additional_locations) out.push(`- Also at ${inline(f.file)} line ${a.line}: ${oneLine(a.reachability)}`)
   out.push(`- Finding id: ${inline(f.id)}`)

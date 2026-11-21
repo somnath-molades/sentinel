@@ -19,6 +19,8 @@ const LANGUAGES: Record<string, string> = {
   '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript', '.jsx': 'javascript',
   '.ts': 'typescript', '.tsx': 'typescript', '.py': 'python', '.go': 'go', '.rs': 'rust',
   '.php': 'php', '.rb': 'ruby', '.java': 'java', '.cs': 'csharp', '.sh': 'shell',
+  // .h is c (C's only header extension); a header-only C++ library derives only c, and .hh/.hxx/.cxx/.cp go unexamined.
+  '.c': 'c', '.h': 'c', '.cc': 'cpp', '.cpp': 'cpp', '.hpp': 'cpp',
 }
 
 /**

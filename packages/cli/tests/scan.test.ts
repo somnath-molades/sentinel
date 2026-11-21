@@ -126,8 +126,8 @@ describe('silent-failure guards', () => {
   test('one recognised file does not suppress the coverage warning for the files around it', async () => {
     const t = await tmpTarget({
       'package.json': '{"name":"x"}\n',
-      'src/a.c': 'int main(){return 0;}\n',
-      'src/b.cpp': 'int f(){return 1;}\n',
+      'src/a.lua': 'print(1)\n', // not in the walker's extension table; C and C++ used to be the examples here
+      'src/b.kt': 'fun main() {}\n',
       'main.tf': 'resource "aws_s3_bucket_acl" "b" { acl = "public-read" }\n',
       'config.yml': 'db:\n  password: "hunter2"\n',
       'server.js': 'const express = require("express")\n',

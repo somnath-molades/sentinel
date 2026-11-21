@@ -1,6 +1,55 @@
 import type { SkipRecord } from '@sentinel/core'
 import { toMarkdown } from '@sentinel/core'
-import { findings, profile } from './helpers.js'
+import { agreed, disputed, droppedAfterDispute, findings, profile } from './helpers.js'
+
+test('markdown states the spread on a disputed finding', () => {
+  const md = toMarkdown([disputed], profile, { mode: 'full' })
+  expect(md).toMatch(/verifiers disagreed/i)
+  expect(md).toContain('high')
+  expect(md).toContain('low')
+  expect(md).toMatch(/verifiers disagreed.*`v1` rated high.*`v2` rated low/i)
+})
+
+test('the dispute line shows in pure-reasoning mode too', () => {
+  expect(toMarkdown([disputed], profile, { mode: 'pure-reasoning' })).toMatch(/verifiers disagreed/i)
+})
+
+test('an undisputed finding says nothing about disagreement', () => {
+  expect(toMarkdown([agreed], profile, { mode: 'full' })).not.toMatch(/disagreed/i)
+})
+
+// The plain-language part of the (single) finding block, i.e. everything before the engineer-voice section.
+// Asserting on this slice keeps these tests from passing on the technical line's different wording.
+const plainPart = (md: string): string => (md.split('**What this means**')[1] ?? '').split('**Technical detail**')[0]!
+
+test('the plain section states the doubt on a disputed finding, in both modes, without the spread', () => {
+  for (const mode of ['full', 'pure-reasoning'] as const) {
+    const plain = plainPart(toMarkdown([disputed], profile, { mode }))
+    expect(plain).toContain('Rated **high**')
+    expect(plain).toMatch(/did not agree on how serious/i)
+    expect(plain).not.toMatch(/score|rated low|`v1`|`v2`|verifiers/i)
+  }
+})
+
+test('the technical line is not what satisfies the plain-section check, and vice versa', () => {
+  const md = toMarkdown([disputed], profile, { mode: 'full' })
+  expect(md.split('**Technical detail**')[1]).not.toMatch(/did not agree/i)
+})
+
+test('the plain section of an undisputed finding says nothing about doubt', () => {
+  const plain = plainPart(toMarkdown([agreed], profile, { mode: 'full' }))
+  expect(plain).toContain('Rated **high**')
+  expect(plain).not.toMatch(/agree|disput|contested|rated it lower/i)
+})
+
+// Replaces two negative-only tests that passed whatever the dispute logic did: dropped findings are never rendered,
+// so "no doubt clause" could not fail. What can fail is the count line and the snippet staying out of the report.
+test('a finding dropped after a dispute is counted as disproved and its content is not listed', () => {
+  const md = toMarkdown([droppedAfterDispute], profile, { mode: 'full' })
+  expect(md).toContain('- 1 disproved by verification (not listed)')
+  expect(md).not.toContain(droppedAfterDispute.snippet)
+  expect(md).toContain('- Confirmed: 0')
+})
 
 const REASONS: SkipRecord['reason'][] = ['minified', 'vendored', 'generated', 'binary', 'too-large', 'not-utf8', 'not-regular', 'unreadable', 'symlink']
 

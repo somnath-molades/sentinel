@@ -3,6 +3,7 @@ id: over-permissive-agent-tool-allowlist
 vuln_classes: [insecure-configuration, excessive-privilege]
 cwe: [CWE-732, CWE-250]
 depth_tier: L0
+domain: agentic
 stacks: [agent-config, ci, generic]
 fix_patterns:
   - stack: agent-config

@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs'
-import { cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import type { GhRunner } from '../src/tools.js'
@@ -88,9 +88,92 @@ afterEach(async () => {
 })
 
 describe('tool set', () => {
-  test('registers exactly the Phase 1 tools', async () => {
+  test('registers exactly the Phase 2a tool set', async () => {
     const c = await connect()
-    expect((await c.listTools()).tools.map((t) => t.name).sort()).toEqual(['profile_target', 'record_finding', 'report', 'select_techniques', 'verify_finding'])
+    expect((await c.listTools()).tools.map((t) => t.name).sort()).toEqual(['plan_hunts', 'profile_target', 'record_finding', 'report', 'select_techniques', 'verify_finding'])
+  })
+})
+
+describe('plan_hunts', () => {
+  test('before any profile is a tool error, not a throw', async () => {
+    const c = await connect()
+    const r = await callRaw(c, 'plan_hunts', {})
+    expect(r.isError).toBe(true)
+    expect(r.content[0]!.text).toMatch(/profile/i)
+  })
+  test('returns ten assignments after profiling, carrying only the spec 5.1 fields and no file list', async () => {
+    const c = await connect()
+    await call(c, 'profile_target', { target: dir })
+    const { assignments } = json(await call(c, 'plan_hunts', {}))
+    expect(assignments).toHaveLength(10)
+    const allowed = ['coverage', 'domain', 'hotspot_paths', 'reason', 'techniques']
+    for (const a of assignments) expect(Object.keys(a).every((k) => allowed.includes(k))).toBe(true)
+    for (const a of assignments) {
+      expect(typeof a.domain).toBe('string')
+      expect(Array.isArray(a.hotspot_paths)).toBe(true)
+    }
+  })
+  test('registry_root is absolute and joins with every returned technique path to a real file with a Detection section', async () => {
+    const c = await connect()
+    await call(c, 'profile_target', { target: dir })
+    const out = json(await call(c, 'plan_hunts', {}))
+    expect(isAbsolute(out.registry_root)).toBe(true)
+    const paths: string[] = out.assignments.flatMap((a: { techniques: { path: string }[] }) => a.techniques.map((t) => t.path))
+    expect(paths.length).toBeGreaterThan(0)
+    for (const p of paths) expect(await readFile(join(out.registry_root, p), 'utf8')).toMatch(/^## Detection$/m)
+  })
+  test('target_root is absolute and is the directory that was profiled', async () => {
+    const c = await connect()
+    await call(c, 'profile_target', { target: dir })
+    const out = json(await call(c, 'plan_hunts', {}))
+    expect(isAbsolute(out.target_root)).toBe(true)
+    expect((await stat(out.target_root)).isDirectory()).toBe(true)
+    expect(realpathSync(out.target_root)).toBe(realpathSync(dir))
+    expect(await readFile(join(out.target_root, 'src', 'app.js'), 'utf8')).toContain('express')
+  })
+  test('a registry entry that failed to load is reported beside the assignments that its absence emptied', async () => {
+    const reg = await mkdtemp(join(tmpdir(), 'sentinel-mcp-test-reg-'))
+    try {
+      await cp(join(process.cwd(), 'registry'), reg, { recursive: true })
+      // the only dependencies technique
+      await writeFile(join(reg, 'packs', 'vbsec', 'techniques', 'vulnerable-dependency-version.md'), 'not a technique')
+      const c = await connect({ registryRoot: reg })
+      await call(c, 'profile_target', { target: dir })
+      const out = json(await call(c, 'plan_hunts', {}))
+      const deps = out.assignments.find((a: { domain: string }) => a.domain === 'dependencies')
+      expect(deps.techniques).toEqual([])
+      expect(deps.reason).toMatch(/no technique in the loaded registry/)
+      expect(out.registry_warning).toMatch(/failed to load.*vulnerable-dependency-version/)
+    } finally {
+      await rm(reg, { recursive: true, force: true })
+    }
+  })
+  test('profile, plan_hunts, report: no "never called" warning, and uncovered domains reach the report', async () => {
+    const c = await connect()
+    await call(c, 'profile_target', { target: dir })
+    const { assignments } = json(await call(c, 'plan_hunts', {}))
+    const none = assignments.find((a: { coverage: string }) => a.coverage === 'none')
+    expect(none).toBeDefined()
+    const warnings: string = json(await call(c, 'report', {})).coverage_warnings.join('\n')
+    expect(warnings).not.toMatch(/never called/)
+    expect(warnings).toMatch(new RegExp(`No techniques exist for the ${none.domain} domain`))
+  })
+  test('a domain with nothing to do arrives present, with an empty techniques array and a reason', async () => {
+    const reg = await mkdtemp(join(tmpdir(), 'sentinel-mcp-test-empty-reg-'))
+    try {
+      await mkdir(join(reg, 'packs'))
+      const c = await connect({ registryRoot: reg })
+      await call(c, 'profile_target', { target: dir })
+      const { assignments } = json(await call(c, 'plan_hunts', {}))
+      expect(assignments).toHaveLength(10)
+      for (const a of assignments) {
+        expect(a.techniques).toEqual([])
+        expect(a.coverage).toBe('none')
+        expect(a.reason).toMatch(/\S/)
+      }
+    } finally {
+      await rm(reg, { recursive: true, force: true })
+    }
   })
 })
 
@@ -120,7 +203,7 @@ describe('empty or partial inputs never read as clean', () => {
   test('a target with no classifiable language warns at profile time and again in the report, even after selecting generic', async () => {
     await rm(join(dir, 'src'), { recursive: true })
     await rm(join(dir, 'main.rs'))
-    await writeFile(join(dir, 'main.c'), 'int main(void){return 0;}\n')
+    await writeFile(join(dir, 'main.lua'), 'print(1)\n') // .lua is not in the walker table; C used to be the example here
     const c = await connect()
     const p = json(await call(c, 'profile_target', { target: dir }))
     expect(p.stacks.suggested).toEqual([])
@@ -198,7 +281,9 @@ describe('select_techniques coverage signal', () => {
 describe('record_finding', () => {
   test('one bad finding does not abort the batch; rejections say which and why', async () => {
     const c = await connect()
+    await call(c, 'profile_target', { target: dir })
     const r = await call(c, 'record_finding', {
+      reporting_agent: 'hunter-1',
       findings: [F, { ...F, snippet: '   ' }, { ...F, line: 9, snippet: 'other()' }, { ...F, depth_tier: 'L9' }, { ...F, technique_id: 'nope' }, 'garbage', { ...F, file: '../../etc/passwd' }],
     })
     const out = json(r)
@@ -210,14 +295,16 @@ describe('record_finding', () => {
   })
   test('a batch where every finding is rejected is an error, not an empty success', async () => {
     const c = await connect()
-    const r = await call(c, 'record_finding', { findings: [{ ...F, reachability: '' }] })
+    await call(c, 'profile_target', { target: dir })
+    const r = await call(c, 'record_finding', { reporting_agent: 'hunter-1', findings: [{ ...F, reachability: '' }] })
     expect(r.isError).toBe(true)
     expect(json(r).rejected).toHaveLength(1)
   })
   test('additional_locations survive: a duplicate sink at another line is carried, not dropped', async () => {
     const c = await connect()
-    await call(c, 'record_finding', { findings: [F] })
-    const out = json(await call(c, 'record_finding', { findings: [{ ...F, line: 40, reachability: 'second sink' }] }))
+    await call(c, 'profile_target', { target: dir })
+    await call(c, 'record_finding', { reporting_agent: 'hunter-1', findings: [F] })
+    const out = json(await call(c, 'record_finding', { reporting_agent: 'hunter-1', findings: [{ ...F, line: 40, reachability: 'second sink' }] }))
     expect(out.accepted[0].additional_locations).toEqual([{ line: 40, reachability: 'second sink' }])
   })
 })
@@ -226,7 +313,7 @@ describe('verify_finding', () => {
   async function seeded(): Promise<{ c: Client; id: string }> {
     const c = await connect()
     await call(c, 'profile_target', { target: dir })
-    const id = json(await call(c, 'record_finding', { findings: [F] })).accepted[0].id as string
+    const id = json(await call(c, 'record_finding', { reporting_agent: 'hunter-1', findings: [F] })).accepted[0].id as string
     return { c, id }
   }
   const V = { agent: 'v1', outcome: 'confirmed', reasoning: 'traced to sink' }
@@ -248,23 +335,73 @@ describe('verify_finding', () => {
       expect(JSON.stringify(rep.report)).not.toMatch(/traced to sink/)
     },
   )
-  test('returns the severity it kept, and makes an overwrite visible', async () => {
+  test('the highest band wins across verifiers, and the disagreement is returned', async () => {
     const { c, id } = await seeded()
     const first = json(await call(c, 'verify_finding', { finding_id: id, ...V, severity_factors: FACTORS }))
-    expect(first.severity_kept.band).toBe('critical')
-    expect(first.severity_overwritten).toBeUndefined()
+    expect(first.severity.band).toBe('critical')
+    expect(first.severity_disputed).toBe(false)
     const low = { exploitability: 0, reachability: 0, blast_radius: 0, data_sensitivity: 0 }
     const second = json(await call(c, 'verify_finding', { finding_id: id, agent: 'v2', outcome: 'confirmed', reasoning: 'r', severity_factors: low }))
-    expect(second.severity_kept.band).toBe('info')
-    expect(second.severity_overwritten.band).toBe('critical')
+    expect(second.severity.band).toBe('critical') // a lower rating no longer replaces a higher one
+    expect(second.severity_disputed).toBe(true)
+    expect(second.severity_by_agent.map((x: { agent: string }) => x.agent)).toEqual(['v1', 'v2'])
     const third = json(await call(c, 'verify_finding', { finding_id: id, agent: 'v3', outcome: 'confirmed', reasoning: 'r' }))
-    expect(third.severity_kept.band).toBe('info') // no factors supplied: the kept one is reported, not hidden
+    expect(third.severity.band).toBe('critical') // no factors supplied: the standing severity is reported, not hidden
   })
   test('unknown finding id, unknown outcome and severity on a non-confirmation are tool errors', async () => {
     const { c, id } = await seeded()
     expect((await call(c, 'verify_finding', { finding_id: 'zzz', ...V })).isError).toBe(true)
     expect((await call(c, 'verify_finding', { finding_id: id, ...V, outcome: 'maybe' })).isError).toBe(true)
     expect((await call(c, 'verify_finding', { finding_id: id, ...V, outcome: 'disproved', severity_factors: FACTORS })).isError).toBe(true)
+  })
+  test('the reporting agent cannot confirm its own finding through the tools', async () => {
+    const { c, id } = await seeded()
+    const r = await call(c, 'verify_finding', { finding_id: id, ...V, agent: 'hunter-1' })
+    expect(r.isError).toBe(true)
+    expect(r.content[0]!.text).toMatch(/reporting agent/)
+    expect(r.content[0]!.text).toMatch(/^Refused: /)
+    expect(r.content[0]!.text).not.toMatch(/Internal error/)
+    expect(json(await call(c, 'report', {})).report).not.toMatch(/traced to sink/)
+  })
+  test('a spelling variant of the reporting agent is refused too', async () => {
+    const { c, id } = await seeded()
+    const r = await call(c, 'verify_finding', { finding_id: id, ...V, agent: 'HUNTER-1' })
+    expect(r.content[0]!.text).toMatch(/reporting agent/)
+  })
+  test('the second reporter of a deduped finding cannot confirm it either', async () => {
+    const { c, id } = await seeded()
+    await call(c, 'record_finding', { reporting_agent: 'hunter-2', findings: [{ ...F, line: 77 }] })
+    expect((await call(c, 'verify_finding', { finding_id: id, ...V, agent: 'hunter-2' })).isError).toBe(true)
+  })
+  test('a different agent can still verify it', async () => {
+    const { c, id } = await seeded()
+    const r = await call(c, 'verify_finding', { finding_id: id, ...V, agent: 'verifier-1' })
+    expect(r.isError).toBeFalsy()
+    expect(json(r).finding.status).toBe('confirmed')
+  })
+  test.each(['hunter 1', 'hunter​-1', 'huntеr-1', ''])('verify_finding rejects the agent id %j', async (agent) => {
+    const { c, id } = await seeded()
+    expect((await call(c, 'verify_finding', { finding_id: id, ...V, agent })).isError).toBe(true)
+  })
+})
+
+describe('record_finding reporting_agent', () => {
+  test('is required', async () => {
+    const c = await connect()
+    expect((await call(c, 'record_finding', { findings: [F] })).isError).toBe(true)
+  })
+  test.each(['', '   ', 'hunter 1', 'hunter​-1', 'huntеr-1', 'café'])('rejects the agent id %j', async (reporting_agent) => {
+    const c = await connect()
+    expect((await call(c, 'record_finding', { reporting_agent, findings: [F] })).isError).toBe(true)
+  })
+  test('a verifier cannot later report the finding it verified', async () => {
+    const c = await connect()
+    await call(c, 'profile_target', { target: dir })
+    const id = json(await call(c, 'record_finding', { reporting_agent: 'hunter-1', findings: [F] })).accepted[0].id as string
+    await call(c, 'verify_finding', { finding_id: id, agent: 'verifier-1', outcome: 'confirmed', reasoning: 'r' })
+    const r = await call(c, 'record_finding', { reporting_agent: 'verifier-1', findings: [F] })
+    expect(r.isError).toBe(true)
+    expect(json(r).rejected[0].reason).toMatch(/verdict/)
   })
 })
 
@@ -277,7 +414,7 @@ describe('report', () => {
     const c = await connect()
     await call(c, 'profile_target', { target: dir })
     await call(c, 'select_techniques', { stack: 'node' })
-    const id = json(await call(c, 'record_finding', { findings: [F] })).accepted[0].id
+    const id = json(await call(c, 'record_finding', { reporting_agent: 'hunter-1', findings: [F] })).accepted[0].id
     await call(c, 'verify_finding', { finding_id: id, agent: 'v', outcome: 'confirmed', reasoning: 'ok', severity_factors: FACTORS })
     const md = json(await call(c, 'report', {}))
     expect(md.report).toContain('sql-injection-built-query-string')
@@ -303,7 +440,7 @@ describe('report', () => {
     const c = await connect()
     await call(c, 'profile_target', { target: dir })
     await call(c, 'select_techniques', { stack: 'java', vuln_class: 'sql-injection' })
-    await call(c, 'record_finding', { findings: [{ ...F, snippet: '' }] })
+    await call(c, 'record_finding', { reporting_agent: 'hunter-1', findings: [{ ...F, snippet: '' }] })
     const w = json(await call(c, 'report', {})).coverage_warnings.join(' ')
     expect(w).toMatch(/java/)
     expect(w).toMatch(/rejected/)

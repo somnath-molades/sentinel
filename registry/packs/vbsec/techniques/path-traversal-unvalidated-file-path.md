@@ -3,6 +3,7 @@ id: path-traversal-unvalidated-file-path
 vuln_classes: [path-traversal]
 cwe: [CWE-22]
 depth_tier: L1
+domain: injection
 stacks: [node, python, php, go]
 fix_patterns:
   - stack: generic

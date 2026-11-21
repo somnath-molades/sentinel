@@ -3,6 +3,7 @@ id: command-injection-shell-interpolation
 vuln_classes: [command-injection]
 cwe: [CWE-78]
 depth_tier: L1
+domain: injection
 stacks: [node, python, php, go]
 fix_patterns:
   - stack: node

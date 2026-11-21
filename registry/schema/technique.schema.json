@@ -30,6 +30,21 @@
         "L5"
       ]
     },
+    "domain": {
+      "type": "string",
+      "enum": [
+        "authorization",
+        "injection",
+        "secrets",
+        "dependencies",
+        "iac",
+        "supply-chain",
+        "crypto",
+        "agentic",
+        "memory-safety",
+        "configuration"
+      ]
+    },
     "stacks": {
       "type": "array",
       "items": {
@@ -95,6 +110,7 @@
     "id",
     "vuln_classes",
     "depth_tier",
+    "domain",
     "stacks",
     "fix_patterns",
     "references",

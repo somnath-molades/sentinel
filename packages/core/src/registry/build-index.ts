@@ -5,7 +5,7 @@ import { packSchema } from '../schema/pack.js'
 import { parseTechnique } from '../schema/technique.js'
 import type { SchemaError, TechniqueEntry } from '../schema/technique.js'
 
-export type IndexedTechnique = Pick<TechniqueEntry, 'id' | 'vuln_classes' | 'depth_tier' | 'stacks'> & {
+export type IndexedTechnique = Pick<TechniqueEntry, 'id' | 'vuln_classes' | 'depth_tier' | 'stacks' | 'domain'> & {
   pack: string
   /** Registry-relative, forward-slash path to the entry. */
   path: string
@@ -60,7 +60,7 @@ export async function buildIndex(registryRoot: string): Promise<{ index: Registr
         continue
       }
       seen.set(t.id, file)
-      techniques.push({ id: t.id, vuln_classes: t.vuln_classes, depth_tier: t.depth_tier, stacks: t.stacks, pack: packId, path: `packs/${packDir}/techniques/${f}` })
+      techniques.push({ id: t.id, vuln_classes: t.vuln_classes, depth_tier: t.depth_tier, stacks: t.stacks, domain: t.domain, pack: packId, path: `packs/${packDir}/techniques/${f}` })
     }
   }
   techniques.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))

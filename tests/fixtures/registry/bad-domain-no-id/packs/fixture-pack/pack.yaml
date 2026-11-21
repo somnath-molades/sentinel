@@ -1,0 +1,7 @@
+id: fixture-pack
+name: Fixture pack with one malformed entry
+source_url: https://example.invalid/fixture
+license: MIT
+ingestion_mode: original
+coverage: [L1]
+trust_tier: first-party

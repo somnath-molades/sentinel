@@ -3,6 +3,7 @@ id: reflected-xss-unescaped-output
 vuln_classes: [xss]
 cwe: [CWE-79]
 depth_tier: L1
+domain: injection
 stacks: [node, python, php, generic]
 fix_patterns:
   - stack: generic

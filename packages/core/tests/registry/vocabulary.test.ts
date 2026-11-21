@@ -1,4 +1,8 @@
-import { STACKS, stackForLanguage } from '@sentinel/core'
+import { DOMAINS, STACKS, buildIndex, coverageGap, profileTarget, selectTechniques, stackForLanguage } from '@sentinel/core'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const fixture = (name: string): string => fileURLToPath(new URL(`../../../../tests/fixtures/targets/${name}`, import.meta.url))
 
 test('every mapped language lands on a real stack token; unmapped languages map to nothing', () => {
   for (const l of ['javascript', 'typescript', 'python', 'go', 'php', 'java']) expect(STACKS).toContain(stackForLanguage(l))
@@ -6,7 +10,32 @@ test('every mapped language lands on a real stack token; unmapped languages map 
   for (const l of ['rust', 'ruby', 'csharp', 'shell', '']) expect(stackForLanguage(l)).toBeUndefined()
 })
 
+test('a C project yields a c stack, and cpp resolves', async () => {
+  const p = await profileTarget({ kind: 'local', root: fixture('c-memory-safety') })
+  expect(p.languages.map((l) => l.language)).toContain('c')
+  expect(stackForLanguage('c')).toBe('c')
+  expect(stackForLanguage('cpp')).toBe('cpp')
+})
+
+// Spec 3.4/8.1 join: the stack DERIVED from a real C tree, not a literal, must reach the memory-safety technique.
+test('the derived stack of a C tree selects the memory-safety technique', async () => {
+  const { index } = await buildIndex(resolve(dirname(fileURLToPath(import.meta.url)), '../../../../registry'))
+  const stacks = coverageGap(await profileTarget({ kind: 'local', root: fixture('c-memory-safety') })).stacks
+  expect(stacks).toEqual(['c'])
+  const ids = stacks.flatMap((stack) => selectTechniques(index, { domain: 'memory-safety', stack }).techniques.map((t) => t.id))
+  expect(ids).toContain('unbounded-copy-into-fixed-buffer')
+})
+
 // M2: the lookup is an object index, so a prototype member must not come back as a stack.
 test('a language named after a prototype member maps to nothing', () => {
   for (const l of ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'valueOf']) expect(stackForLanguage(l)).toBeUndefined()
+})
+
+test('DOMAINS holds exactly the ten spec values', () => {
+  expect([...DOMAINS].sort()).toEqual(['agentic', 'authorization', 'configuration', 'crypto', 'dependencies', 'iac', 'injection', 'memory-safety', 'secrets', 'supply-chain'])
+})
+
+test('every hotspot domain the profiler emits is a member', async () => {
+  const p = await profileTarget({ kind: 'local', root: fixture('express-vulnerable') })
+  for (const h of p.hotspots) for (const d of h.domains) expect(DOMAINS).toContain(d)
 })

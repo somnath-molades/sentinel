@@ -12,7 +12,7 @@ const minimalProfile = {
   iac: [],
   ci: [],
   client_boundary: [],
-  hotspots: [{ path: 'src/server.ts', reason: 'handles requests', domains: ['web'] }],
+  hotspots: [{ path: 'src/server.ts', reason: 'handles requests', domains: ['authorization'] }],
   skipped: [{ path: 'dist/app.min.js', reason: 'minified' }],
   file_count: 4,
   truncated: false,

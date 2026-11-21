@@ -3,6 +3,7 @@ id: unbounded-copy-into-fixed-buffer
 vuln_classes: [memory-safety, buffer-overflow]
 cwe: [CWE-787, CWE-120]
 depth_tier: L1
+domain: memory-safety
 stacks: [c, cpp]
 fix_patterns:
   - stack: c
